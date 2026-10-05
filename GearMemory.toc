@@ -3,7 +3,7 @@
 ## Notes: Gear by specialization and stat priorities.
 ## Notes-ptBR: Equipamento por especialização e prioridades de atributos.
 ## Author: Eduardo
-## Version: 0.2.1-beta
+## Version: 0.3.0-beta
 ## SavedVariablesPerCharacter: GearMemoryDB
 ## IconTexture: 135291
 

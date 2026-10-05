@@ -1,4 +1,4 @@
-# GearMemory 0.2.1 beta
+# GearMemory 0.2.0 beta
 
 GearMemory is a standalone World of Warcraft Retail 12.1 addon that compares your equipped gear, backpack items, and bank items against the priorities you choose for your current specialization. Its interface is in Brazilian Portuguese.
 
@@ -8,11 +8,14 @@ Use `/gm`, `/gearmemory`, or the helmet button on the minimap. Choose **Priorida
 
 The main attribute is selected automatically from your specialization: Strength, Agility, or Intellect. It always wins over secondary stats. Warrior armor must be plate; inappropriate armor, weapons, and primary attributes cannot become upgrades because of item level. Accessories without a main attribute remain legitimate candidates. Inactive adaptive attributes are not added to the score or treated as competing attributes.
 
-The comparison is deterministic and uses the following order:
+The comparison is deterministic. Each content profile (Raid, Dungeon/M+, Open world, PvP) keeps its own secondary priorities per specialization; **Perfil** chooses it automatically or lets you pin one.
 
 1. Appropriate main attribute. A higher amount wins regardless of secondary score.
-2. Weighted secondary score: priority 1 × 3, priority 2 × 2, other secondary stats × 1.
-3. Item level as a tie breaker.
+2. With the same main attribute, an item level lead of 5 or more wins.
+3. Otherwise the weighted secondary score decides: priority 1 × 3, priority 2 × 2, other secondaries × 1. Tertiary stats (Speed, Leech, Avoidance) add small amounts and never justify losing item level.
+4. Item level breaks any remaining tie.
+
+Gems and enchants already on the equipped item count towards its stats. In PvP, including the open world with PvP or War Mode on, the buffed PvP item level is compared first, so a PvE item is only chosen when its item level is higher; those swaps are always left to you.
 
 The interface shows the main attribute amount, secondary score, and item level separately; there is no misleading single combined score. This expresses your chosen priorities, rather than predicting damage or healing.
 
@@ -40,13 +43,17 @@ Visiting the bank reads the currently viewable purchased bank tabs through Retai
 
 Bank equipment must be withdrawn by the player. The snapshot can become outdated after another character changes the Warband bank, after a specialization change, or after remote item modifications. Revisit the bank to refresh it. Partial bank reads do not replace a completed snapshot.
 
+## Curated data and explanations
+
+`Data.lua` holds the trinket ratings per specialization (Fury and Frost Death Knight, from Method.gg for Midnight 12.1) and the upgrade currency table. A trinket that is not listed is never equipped automatically. `/gm explain` prints why each slot keeps or changes its item, and every suggestion shows the reason in the list and its tooltip.
+
 ## Installation
 
 Extract the `GearMemory` folder into `_retail_/Interface/AddOns/`, alongside BagMemory and MuscleMemory. Enable GearMemory on the character selection addon screen. A newly installed addon requires a full client restart to be discovered; later Lua changes can be picked up with `/reload`.
 
 ## Validation status
 
-Lua source was checked for syntax by loading, without executing, each chunk. No tests were added or run. Live Retail validation is still required for frames, tooltips, specialization metadata, bank APIs, adaptive item stats, unique equipment, protected actions, native confirmation behavior, and combat restrictions.
+Lua source was checked for syntax by loading, without executing, each chunk. Offline tests (`~/Documentos/GearMemory/tests/run.lua`, run with `luajit`) cover the comparison rules, PvP, trinkets, weapon styles, set bonuses, upgrade tracks and tooltip reading with simulated data. Live Retail validation is still required for frames, tooltips, specialization metadata, bank APIs, adaptive item stats, unique equipment, protected actions, native confirmation behavior, and combat restrictions.
 
 The addon uses native APIs from Blizzard's UI source mirror:
 

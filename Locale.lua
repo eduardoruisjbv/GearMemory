@@ -31,6 +31,7 @@ local english = {
     ["Banco: retire para as bolsas"] = "Bank: withdraw to the bags",
     ["Aguardando dados de itens/conjuntos"] = "Waiting for item/set data",
     ["Dados incompletos"] = "Incomplete data",
+    ["idêntico ao equipado, mas vale menos no vendedor: a cópia mais cara será vendida"] = "identical to the equipped one but worth less at the vendor: the dearer copy gets sold",
     ["Identificação/cópias do item exigem revisão"] = "Item identification/copies require review",
     ["Item bloqueado"] = "Item locked",
     ["Reembolso ou informação de reembolso pendente"] = "Refund or refund information pending",

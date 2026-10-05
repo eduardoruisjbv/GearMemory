@@ -53,17 +53,17 @@ function GM:ReadTooltip(item)
     local data
     if item.bag then data=self:Call(C_TooltipInfo.GetBagItem,item.bag,item.slot)
     else data=self:Call(C_TooltipInfo.GetInventoryItem,"player",item.inventorySlot) end
-    if not data or type(data.lines)~="table" or #data.lines==0 then item.incomplete=true;return end
+    if not data or type(data.lines)~="table" or #data.lines==0 then item.incomplete=true;item.why="tooltip vazio";return end
     local pvpPattern=pattern(PVP_ITEM_LEVEL_TOOLTIP)
     local upgradePattern=formatPattern(ITEM_UPGRADE_TOOLTIP_FORMAT_STRING)
     local types=Enum and Enum.TooltipDataLineType or {}
     for _,line in ipairs(data.lines) do
-        if issecretvalue and issecretvalue(line.type) then item.incomplete=true;return end
+        if issecretvalue and issecretvalue(line.type) then item.incomplete=true;item.why="tooltip secreto";return end
         if types.ItemSpell and line.type==types.ItemSpell then item.effect=true end
         local bonusLine=types.GemSocket and line.type==types.GemSocket or types.ItemEnchantment and line.type==types.ItemEnchantment
         for _,field in ipairs({"leftText","rightText"}) do
             local text=clean(line[field])
-            if not text then item.incomplete=true;return end
+            if not text then item.incomplete=true;item.why="texto do tooltip secreto";return end
             if bonusLine and field=="leftText" then addBonus(item,text) end
             local track,current,maximum=text:match(upgradePattern or "^$")
             if track and tonumber(current) and tonumber(maximum) then
@@ -105,12 +105,13 @@ function GM:ReadItem(link, storage, bag, slot, inventorySlot, container)
     local info={self:Call(C_Item.GetItemInfo,link)}
     item.id=container and container.itemID or self:Call(C_Item.GetItemInfoInstant,link)
     if not info[1] then
-        item.incomplete=true
+        item.incomplete=true;item.why="GetItemInfo ainda não carregou"
         if item.id then self.waiting[item.id]=true;self:Call(C_Item.RequestLoadItemDataByID,item.id) end
         return item
     end
     item.name,item.link,item.quality=info[1],info[2],info[3]
     item.minLevel,item.equipLoc,item.icon=info[5],info[9],info[10]
+    item.sellPrice=info[11]
     item.class,item.subclass,item.bindType,item.setID=info[12],info[13],info[14],info[16]
     item.gear=(item.class==2 or item.class==4) and item.equipLoc~="" and not ignored[item.equipLoc]
     if not item.gear then return item end
@@ -128,6 +129,10 @@ function GM:ReadItem(link, storage, bag, slot, inventorySlot, container)
         end
     end
     item.specs=self:Call(C_Item.GetItemSpecInfo,item.link)
+    -- Rings, necklaces and cloaks have no primary stat, so the game reports no specialization
+    -- list for them: that means "any spec", not "data missing".
+    if type(item.specs)~="table" and (item.equipLoc=="INVTYPE_FINGER" or item.equipLoc=="INVTYPE_NECK"
+        or item.equipLoc=="INVTYPE_CLOAK") then item.specs={} end
     item.uniqueCategory,item.uniqueMax=self:Call(C_Item.GetItemUniqueness,item.link)
     item.unique=self:Call(C_Item.GetItemUniquenessByID,item.link)
     item.equippable=self:Call(C_Item.IsEquippableItem,item.link)
@@ -137,9 +142,11 @@ function GM:ReadItem(link, storage, bag, slot, inventorySlot, container)
         local quest=self:Call(C_Container.GetContainerItemQuestInfo,bag,slot)
         item.quest=type(quest)~="table" or quest.isQuestItem or quest.questID~=nil
     end
-    if type(item.stats)~="table" or type(item.specs)~="table" or not item.level then item.incomplete=true end
+    if type(item.stats)~="table" then item.incomplete=true;item.why="sem estatísticas"
+    elseif type(item.specs)~="table" then item.incomplete=true;item.why="sem info de especialização"
+    elseif not item.level then item.incomplete=true;item.why="sem item level" end
     for _,value in pairs(item.stats or {}) do
-        if issecretvalue and issecretvalue(value) then item.incomplete=true;item.stats={};break end
+        if issecretvalue and issecretvalue(value) then item.incomplete=true;item.why="estatística secreta";item.stats={};break end
     end
     self:ReadTooltip(item)
     return item
@@ -191,6 +198,7 @@ function GM:Scan(skipAutomatic)
     if not self.db or InCombatLockdown() then return end
     self:ReadProfile()
     self.waiting={};self.items={};self.worn={};self.incomplete=false;self.copies={}
+    self.wornIncomplete=false;self.incompleteList={}
     self.setItems={}
     local sets=self:Call(C_EquipmentSet and C_EquipmentSet.GetEquipmentSetIDs)
     self.setsUnknown=type(sets)~="table"
@@ -204,8 +212,14 @@ function GM:Scan(skipAutomatic)
         if link then
             local item=self:ReadItem(link,"equipped",nil,nil,slot)
             self.worn[slot]=item;self.items[#self.items+1]=item
-            if item.incomplete then self.incomplete=true end
-        elseif self:Call(GetInventoryItemID,"player",slot) then self.incomplete=true end
+            if item.incomplete then
+                self.incomplete=true;self.wornIncomplete=true
+                self.incompleteList[#self.incompleteList+1]={item=item,where="equipado: "..self.slotNames[slot]}
+            end
+        elseif self:Call(GetInventoryItemID,"player",slot) then
+            self.incomplete=true;self.wornIncomplete=true
+            self.incompleteList[#self.incompleteList+1]={item={why="link do equipado indisponível"},where="equipado: "..self.slotNames[slot]}
+        end
     end end
     for bag=0,NUM_TOTAL_EQUIPPED_BAG_SLOTS or 5 do
         for slot=1,C_Container.GetContainerNumSlots(bag) do
@@ -216,13 +230,27 @@ function GM:Scan(skipAutomatic)
                     self.items[#self.items+1]=item
                     self.copies[item.link]=(self.copies[item.link] or 0)+1
                 end
-                if item.incomplete then self.incomplete=true end
+                if item.incomplete then
+                    self.incomplete=true
+                    self.incompleteList[#self.incompleteList+1]={item=item,where="bolsa "..bag.."/"..slot}
+                end
             end
         end
     end
     for _,item in ipairs(self:ReadBank()) do self.items[#self.items+1]=item end
     self:Evaluate()
     self:RefreshUI()
+    -- Item data can arrive late or never fire an event for what we could not read:
+    -- look again a few times instead of waiting for a manual refresh.
+    if self.incomplete or self.setsUnknown then
+        if (self.retryScans or 0)<6 and not self.retryPending then
+            self.retryScans=(self.retryScans or 0)+1;self.retryPending=true
+            C_Timer.After(2,function()
+                self.retryPending=false
+                if (self.incomplete or self.setsUnknown) and not InCombatLockdown() then self:Scan(skipAutomatic) end
+            end)
+        end
+    else self.retryScans=0 end
     local available=false
     for _,suggestion in ipairs(self.ready or {}) do
         if not (self.blocked or {})[self:ItemKey(suggestion.item)] and self:UniqueAllowed(suggestion.item,self.worn,suggestion.target) then available=true;break end
@@ -235,4 +263,54 @@ function GM:Scan(skipAutomatic)
             if self.config.automatic then self:StartEquipment(true) end
         end)
     end
+end
+
+-- /gm diag: which items are unreadable, and why, so a stuck "waiting for data" is explainable.
+function GM:DiagLines()
+    local out={}
+    local function add(text) out[#out+1]=text end
+    add("diag: equipado incompleto="..tostring(self.wornIncomplete)..", conjuntos desconhecidos="..tostring(self.setsUnknown)
+        ..", tentativas="..tostring(self.retryScans or 0))
+    add("diag: pronto para equipar="..#(self.ready or {})..", automático="..tostring(self.config.automatic)..", pode equipar agora="..tostring(self:CanEquipNow())..", em combate="..tostring(InCombatLockdown()))
+    local shown=0
+    for _,s in ipairs(self.suggestions or {}) do
+        if shown<14 then
+            shown=shown+1
+            add("diag: slot "..tostring(s.target).." "..tostring(s.item.link or s.item.name).." → "..tostring(s.reason or "PRONTO"))
+        end
+    end
+    local context=self.profile.context
+    add("diag: perfil="..tostring(context)..", spec="..tostring(self.profile.spec)..", principal="..tostring(self.profile.primary)
+        ..", nível="..tostring(self.profile.level))
+    local lines=0
+    for _,item in ipairs(self.items or {}) do
+        if item.storage=="bag" and item.gear and lines<20 then
+            local why=self:FitsWhy(item)
+            local worn
+            for _,w in pairs(self.worn or {}) do if w.equipLoc==item.equipLoc then worn=w;if w.level and item.level and w.level<item.level then break end end end
+            local a=self:Score(item,context)
+            local b=worn and self:Score(worn,context) or nil
+            if why or (b and a[3]>b[3]) then
+                lines=lines+1
+                local text="diag: "..tostring(item.link).." ["..tostring(item.equipLoc).."] "
+                if why then text=text.."NÃO CABE: "..why
+                else
+                    text=text.."cabe: P="..a[1].." S="..a[2].." L="..a[3]
+                    if b then text=text.." | equipado P="..b[1].." S="..b[2].." L="..b[3].." → "..tostring((self:Compare(a,b,context,1))) end
+                end
+                add(text)
+            end
+        end
+    end
+    local list=self.incompleteList or {}
+    if #list==0 then add("diag: nenhum item incompleto na última leitura.") end
+    for _,entry in ipairs(list) do
+        local item=entry.item
+        add("diag: "..entry.where.." "..tostring(item.link or item.name or item.id or "?").." → "..tostring(item.why or "?"))
+    end
+    return out
+end
+
+function GM:PrintDiagnostics()
+    for _,line in ipairs(self:DiagLines()) do self:Print(line) end
 end

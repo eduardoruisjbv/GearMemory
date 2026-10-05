@@ -131,7 +131,7 @@ function GM:RefreshUI()
     f.context.label:SetText(L["Perfil: "]..(self.config.context=="auto" and "Auto · " or "")..(self.contextNames[p.context] or p.context).."  ▾")
     f.automatic:SetChecked(self.config.automatic==true)
     local count=#(self.ready or {})
-    local state=self.work and L["Equipando…"] or InCombatLockdown() and L["Em combate; atualização ao sair."] or self.incomplete and L["Aguardando dados dos itens."] or count..L[" melhoria(s) segura(s) nas bolsas."]
+    local state=self.work and L["Equipando…"] or InCombatLockdown() and L["Em combate; atualização ao sair."] or self.wornIncomplete and L["Aguardando dados dos itens."] or count..L[" melhoria(s) segura(s) nas bolsas."]
     if self.view=="categories" then
         state=p.context=="pvp" and L["Categorias PvP: ranking de atributos-base; revise efeitos e escala PvP."] or L["Melhores candidatos de cada tipo de item por atributos."]
     end
@@ -145,7 +145,7 @@ function GM:RefreshUI()
     f.categories.label:SetTextColor(self.view=="categories" and 0.25 or 0.65,0.79,0.73)
     local rows=self:BuildRows()
     f.empty:SetShown(#rows==0)
-    f.empty:SetText(self.incomplete and L["Aguardando os dados dos itens…"] or L["Nenhuma melhoria disponível para suas prioridades."])
+    f.empty:SetText(self.wornIncomplete and L["Aguardando os dados dos itens…"] or L["Nenhuma melhoria disponível para suas prioridades."])
     for index,entry in ipairs(rows) do
         local row=f.rows[index]
         if not row then

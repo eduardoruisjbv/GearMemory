@@ -66,6 +66,64 @@ function GM:Fits(item)
     return true
 end
 
+-- Mirror of Fits that names the first failing condition (used by /gm diag only).
+function GM:FitsWhy(item)
+    local p=self.profile
+    if not item.gear then return "não é equipamento" end
+    if item.incomplete then return "incompleto: "..tostring(item.why) end
+    if item.quest then return "marcado como item de missão" end
+    if not p.spec or not p.primary then return "sem especialização/atributo principal no perfil" end
+    if not armor[p.class] then return "classe sem tipo de armadura" end
+    if item.minLevel and (not p.level or item.minLevel>p.level) then return "nível mínimo "..tostring(item.minLevel).." > nível "..tostring(p.level) end
+    if item.equippable~=true then return "IsEquippableItem="..tostring(item.equippable) end
+    if type(item.specs)~="table" then return "sem lista de especializações" end
+    if armorSlots[item.equipLoc] and item.subclass~=armor[p.class] then return "tipo de armadura "..tostring(item.subclass).." ≠ "..tostring(armor[p.class]) end
+    if item.class==2 and not weapons[p.class][item.subclass] then return "arma não usável pela classe" end
+    if #item.specs>0 then
+        local matches=false
+        for _,spec in ipairs(item.specs) do if spec==p.spec then matches=true end end
+        if not matches then return "lista de especializações do item não inclui a atual ("..tostring(p.spec)..")" end
+    end
+    local primary,has=self:Primary(item)
+    if has and primary<=0 then return "atributo principal do item é 0 para o perfil" end
+    if item.primaryInactive and not item.snapshot then return "atributo principal marcado como inativo (linha cinza no tooltip)" end
+    if (armorSlots[item.equipLoc] or item.class==2) and primary<=0 then return "armadura/arma sem atributo principal" end
+    return nil
+end
+
+-- Exact twins: same slot, level, stats, gems and enchants. Swapping one for the other changes
+-- nothing about the character, only what the spare copy is worth at a vendor.
+local function powerKey(item)
+    local parts={}
+    local function add(prefix,list)
+        local keys={}
+        for key,value in pairs(list or {}) do if type(value)=="number" then keys[#keys+1]=key end end
+        table.sort(keys)
+        for _,key in ipairs(keys) do parts[#parts+1]=prefix..key.."="..list[key] end
+    end
+    add("",item.stats);add("b:",item.bonusStats)
+    parts[#parts+1]="sockets="..tostring(item.emptySockets or 0)
+    return table.concat(parts,"|")
+end
+
+function GM:PowerTwin(a,b)
+    if not a or not b or a.equipLoc~=b.equipLoc or a.level~=b.level or a.pvpLevel~=b.pvpLevel then return false end
+    if (a.effect==true)~=(b.effect==true) or (a.setID or 0)~=(b.setID or 0) then return false end
+    if next(a.stats or {})==nil or next(b.stats or {})==nil then return false end
+    return powerKey(a)==powerKey(b)
+end
+
+-- A bag copy identical to the equipped one but worth at least 1 silver less at the vendor: wear
+-- the cheaper copy so the dearer one (now in the bags) is the one that gets sold.
+function GM:CheaperTwin(item, current, context)
+    if not item or not current or item.storage=="equipped" or current.storage~="equipped" then return false end
+    if item.equipLoc=="INVTYPE_TRINKET" then return false end
+    local mine,theirs=item.sellPrice,current.sellPrice
+    if type(mine)~="number" or type(theirs)~="number" or mine<=0 or theirs<=0 or theirs-mine<100 then return false end
+    if not self:PowerTwin(item,current) then return false end
+    return self:Compare(self:Score(item,context),self:Score(current,context),context)==0
+end
+
 -- Curated trinkets: rating 1-4 for the current spec and content group.
 function GM:TrinketRating(item, context)
     if item.equipLoc~="INVTYPE_TRINKET" then return nil end
@@ -187,6 +245,8 @@ function GM:Explain(item, old, slot)
             parts[1]=string.format(L["%s %g contra %g (%+g)"],level,a[3],b[3],a[3]-b[3])
         elseif why=="secundarios" then
             parts[1]=string.format(L["secundários %g contra %g · %s %+g (abaixo do limiar de %d)"],a[2],b[2],level,a[3]-b[3],self.rules.ilvlThreshold)
+        elseif self:CheaperTwin(item,old,context) then
+            parts[1]=L["idêntico ao equipado, mas vale menos no vendedor: a cópia mais cara será vendida"]
         else
             parts[1]=string.format(L["melhor conjunto completo · %s %g contra %g"],level,a[3],b[3])
         end
@@ -247,12 +307,15 @@ end
 function GM:ReviewReason(item, old, loss, ignoreBind)
     local context=self.profile.context
     if item.storage=="bank" then return item.snapshot and L["Banco: registro da última visita; confira e retire o item"] or L["Banco: retire para as bolsas"] end
-    if self.incomplete or self.setsUnknown then return L["Aguardando dados de itens/conjuntos"] end
+    -- Only what is worn (and the saved sets) can change a comparison for every item; an
+    -- unreadable bag item blocks just itself (next line), not every other upgrade.
+    if self.wornIncomplete or self.setsUnknown then return L["Aguardando dados de itens/conjuntos"] end
     if item.incomplete or old and old.incomplete then return L["Dados incompletos"] end
     if item.storage=="bag" then
         if not item.guid or self.copies[item.link]~=1 then return L["Identificação/cópias do item exigem revisão"] end
         if item.locked then return L["Item bloqueado"] end
-        if item.refundable~=false then return L["Reembolso ou informação de reembolso pendente"] end
+        -- Refund: the game itself asks the player to confirm before equipping a refundable item
+        -- (the addon never dismisses that dialog), so it is not a reason to hold the upgrade back.
         if not ignoreBind and (item.bound~=true or item.account~=false or item.bindingReview) then return self.bindReason end
     end
     if item.unique==nil or old and old.unique==nil then return L["Unicidade desconhecida"] end
@@ -356,7 +419,8 @@ function GM:BuildPlan(candidates, context)
             local present=false
             for _,other in pairs(plan) do if self:Same(item,other) then present=true end end
             local current=plan[slot]
-            if not present and (not current or self:Better(self:Score(item,context),self:Score(current,context),context))
+            if not present and (not current or self:Better(self:Score(item,context),self:Score(current,context),context)
+                or self:CheaperTwin(item,current,context))
                 and self:UniqueAllowed(item,plan,slot) then plan[slot]=item end
         end
     end

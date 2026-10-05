@@ -27,8 +27,16 @@ function GM:CurrentContext()
     local chosen=config and config.context
     if chosen and self.contextNames[chosen] then return chosen end
     local _,instance=self:Call(IsInInstance)
-    local flagged=self:Call(UnitIsPVP,"player")==true
-        or C_PvP and self:Call(C_PvP.IsWarModeActive)==true
+    local warActive=C_PvP and self:Call(C_PvP.IsWarModeActive)==true
+    local warDesired=C_PvP and C_PvP.IsWarModeDesired and self:Call(C_PvP.IsWarModeDesired)
+    local flagged
+    if warActive and warDesired==false then
+        -- War Mode was switched off but stays active (and keeps the player flagged) until
+        -- a rested area is reached. The player's choice is "off": that is not a PvP context.
+        flagged=false
+    else
+        flagged=self:Call(UnitIsPVP,"player")==true or warActive==true
+    end
     return self:ContentFor(instance,flagged)
 end
 
@@ -106,10 +114,10 @@ for _,event in ipairs({"ADDON_LOADED","PLAYER_LOGIN","PLAYER_ENTERING_WORLD",
     "MERCHANT_SHOW","MERCHANT_CLOSED","BANKFRAME_OPENED","BANKFRAME_CLOSED","AUCTION_HOUSE_SHOW",
     "AUCTION_HOUSE_CLOSED","TRADE_SHOW","TRADE_CLOSED","QUEST_DETAIL","QUEST_PROGRESS","QUEST_COMPLETE",
     "QUEST_FINISHED","BANK_TABS_CHANGED","PLAYER_FLAGS_CHANGED","WAR_MODE_STATUS_UPDATED",
-    "ZONE_CHANGED_NEW_AREA"}) do
+    "ZONE_CHANGED_NEW_AREA","LOOT_OPENED","LOOT_CLOSED","CHAT_MSG_LOOT"}) do
     pcall(frame.RegisterEvent,frame,event)
 end
-frame:SetScript("OnEvent",function(_,event,arg)
+frame:SetScript("OnEvent",function(_,event,arg,...)
     if event=="ADDON_LOADED" then
         if arg~=addon then
             if GM.db then GM:InstallBagHooks() end
@@ -123,6 +131,7 @@ frame:SetScript("OnEvent",function(_,event,arg)
         SlashCmdList.GEARMEMORY=function(message)
             if message=="stop" then GM.config.automatic=false;GM:StopEquipment();GM:RefreshUI()
             elseif message=="explain" then GM:PrintExplain()
+            elseif message=="diag" then GM:PrintDiagnostics()
             elseif message=="aviso" or message=="toast" then
                 GM.db.toast=GM.db.toast==false
                 GM:Print(L["Aviso na tela "]..(GM.db.toast==false and L["desligado."] or L["ligado."]))
@@ -131,6 +140,9 @@ frame:SetScript("OnEvent",function(_,event,arg)
         return
     end
     if not GM.db then return end
+    if event=="LOOT_OPENED" then GM:OnLootOpened();return end
+    if event=="LOOT_CLOSED" then GM:OnLootClosed();return end
+    if event=="CHAT_MSG_LOOT" then GM:OnLootMessage(arg,(select(11,...)));return end
     if opens[event] then GM.services[opens[event]]=true;GM:StopEquipment() end
     if closes[event] then GM.services[closes[event]]=nil end
     if event=="PLAYER_REGEN_DISABLED" then GM:StopEquipment();return end
@@ -138,7 +150,7 @@ frame:SetScript("OnEvent",function(_,event,arg)
         if arg~="player" then return end
         GM:StopEquipment();GM.blocked={}
     end
-    if event=="PLAYER_LOGIN" then GM:CreateLauncher() end
+    if event=="PLAYER_LOGIN" then GM:CreateLauncher();GM:InstallPanelHooks() end
     if event=="PLAYER_FLAGS_CHANGED" and arg~="player" then return end
     if event=="PLAYER_FLAGS_CHANGED" or event=="WAR_MODE_STATUS_UPDATED" or event=="ZONE_CHANGED_NEW_AREA" then
         -- AFK/DND toggle the same flags; only a real content change matters.
