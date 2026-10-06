@@ -1,3 +1,9 @@
+# GearMemory 0.3.1-beta
+
+- Use a circular minimap button with a native WoW sword icon and mask.
+- Keep the border and icon inside the button and improve minimap layering.
+- Preserve the features and fixes from 0.3.0-beta.
+
 # Changelog
 
 ## 0.3.0-beta — 2026-10-05
