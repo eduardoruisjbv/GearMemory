@@ -14,7 +14,7 @@
 - **Changed: refund is no longer a reason to hold an upgrade.** The game already asks you to confirm before equipping a refundable item, and the addon never dismisses that dialog.
 - **New: it reads the gear more often, without running all the time.** Besides opening the bags, a scan now runs when gear is looted and when the character panel opens (with the bags closed too). Loot windows with more than 6 items are ignored, and so are bursts of loots (more than 10 in 15 seconds) such as material farming; at least 3 seconds separate loot scans.
 - **New: identical copies.** When a bag item is exactly the same as the equipped one (same level, stats, gems and enchants) but worth at least 1 silver less at the vendor, it is worn so the dearer copy can be sold (BagMemory 0.4.0 does the selling). Trinkets are excluded.
-- **New: `/gm diag`** lists why each upgrade is held back and why an item does or does not qualify (the text is Portuguese-only for now).
+- **New: `/gm diag`** lists why each upgrade is held back and why an item does or does not qualify (the diagnostic output is available only in Brazilian Portuguese).
 - Validation: the 45 offline checks pass; the new triggers and rules were checked with simulations only. In-client validation is still pending.
 
 ## 0.2.1-beta — 2026-10-05

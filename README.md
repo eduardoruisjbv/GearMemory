@@ -1,6 +1,6 @@
 # GearMemory 0.2.0 beta
 
-GearMemory is a standalone World of Warcraft Retail 12.1 addon that compares your equipped gear, backpack items, and bank items against the priorities you choose for your current specialization. Its interface is in Brazilian Portuguese.
+GearMemory is a standalone World of Warcraft Retail 12.1 addon that compares your equipped gear, backpack items, and bank items against the priorities you choose for your current specialization. The interface follows the client language: Brazilian Portuguese for ptBR and English for other clients.
 
 ## Open and configure
 
@@ -63,6 +63,6 @@ The addon uses native APIs from Blizzard's UI source mirror:
 
 These API contracts document the integration; they do not replace verification inside WoW.
 
-## Análise de inventário
+## Inventory analysis
 
-Eventos de itens e varreduras de fundo ficam suspensos com as bolsas nativas fechadas. Abrir uma bolsa atualiza a análise; durante combate a atualização automática aguarda o fim do combate. Operações diretas de vendedor/banco/AH e ações manuais do menu mantêm as leituras necessárias. O GearMemory inicia equipamento automático somente com bolsas abertas; fechar as bolsas interrompe a sequência automática.
+Item events and background scans are suspended while native bags are closed. Opening a bag refreshes the analysis; during combat, automatic refresh waits until combat ends. Direct merchant/bank/Auction House operations and manual menu actions still perform the reads they need. GearMemory starts automatic equipment only while bags are open; closing the bags stops the automatic sequence.
