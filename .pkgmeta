@@ -1,0 +1,6 @@
+package-as: GearMemory
+license-output: LICENSE
+ignore:
+    - .gitignore
+    - README.md
+    - CHANGELOG.md
