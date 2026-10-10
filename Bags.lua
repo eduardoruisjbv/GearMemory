@@ -16,20 +16,26 @@ function GM:HasOpenBags()
     return false
 end
 
-function GM:BagVisibilityChanged()
-    local open=self:HasOpenBags()
-    if open==self.bagsOpen then return end
-    self.bagsOpen=open
+function GM:SyncInventoryEvents()
+    local active=self.bagsOpen or self.config and self.config.automatic or false
+    if active==self.inventoryEventsActive then return end
+    self.inventoryEventsActive=active
     for _,event in ipairs(inventoryEvents) do
-        if open then pcall(self.events.RegisterEvent,self.events,event)
+        if active then pcall(self.events.RegisterEvent,self.events,event)
         else self.events:UnregisterEvent(event) end
     end
+end
+
+function GM:BagVisibilityChanged()
+    local open=self:HasOpenBags()
+    local changed=open~=self.bagsOpen
+    self.bagsOpen=open
+    self:SyncInventoryEvents()
+    if not changed then return end
     self.inventoryDirty=true
     if open and self.db then
         self.waiting={}
         self:ScheduleScan("BAG_OPEN")
-    elseif self.work and self.work.automatic then
-        self:StopEquipment()
     end
 end
 
@@ -84,6 +90,10 @@ end
 
 function GM:RequestScan(reason, cooldown)
     if not self.db then return end
+    if reason=="CHARACTER" then
+        self:ScheduleScan(reason,true)
+        return
+    end
     local now=GetTime()
     if now<(self.scanBlockedUntil or 0) then return end
     if now-(self.lastRequestedScan or 0)<(cooldown or LOOT_COOLDOWN) then return end

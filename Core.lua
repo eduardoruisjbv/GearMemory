@@ -1,7 +1,7 @@
 local addon, GM = ...
 local L=GM.L
 _G.GearMemory = GM
-GM.version = "0.2.1-beta"
+GM.version = "0.3.8-beta"
 
 function GM:Call(fn, ...)
     if type(fn)~="function" then return end
@@ -47,10 +47,27 @@ function GM:ReadProfile()
     if index then
         spec,name,_,_,role,primary=self:Call(C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo or GetSpecializationInfo,index)
     end
+    local level=self:Call(UnitLevel,"player")
+    local expansion=self:Call(GetClientDisplayExpansionLevel)
+    local maxLevel=expansion and self:Call(GetMaxLevelForExpansionLevel,expansion)
+        or self:Call(GetMaxPlayerLevel) or self:Call(GetMaxLevelForLatestExpansion)
+    local leveling=level and maxLevel and level<maxLevel
+    if leveling and not spec then
+        local primaryByClass={WARRIOR=1,PALADIN=1,DEATHKNIGHT=1,HUNTER=2,ROGUE=2,MONK=2,
+            DEMONHUNTER=2,DRUID=2,SHAMAN=2,MAGE=4,PRIEST=4,WARLOCK=4,EVOKER=4}
+        spec,primary,name=0,primaryByClass[class],L["Leveling"]
+    end
     self.db.profiles=self.db.profiles or {}
     local id=spec or 0
     self.db.profiles[id]=self.db.profiles[id] or {first="mastery", second="haste", context="auto", automatic=false}
+    if leveling and self.config and self.config.consent==1 then
+        self.db.levelingAutomatic=self.config.automatic==true
+    end
     self.config=self.db.profiles[id]
+    if leveling and self.db.levelingAutomatic~=nil then
+        self.config.automatic=self.db.levelingAutomatic
+        if self.config.automatic then self.config.consent=1 end
+    end
     self.config.automatic=self.config.automatic==true and self.config.consent==1
     if not self.statNames[self.config.first] then self.config.first="mastery" end
     if not self.statNames[self.config.second] or self.config.second==self.config.first then
@@ -71,11 +88,13 @@ function GM:ReadProfile()
     end
     self.lastContext=context
     self.profile={class=class, spec=spec, name=name, role=role, primary=primary,
-        level=self:Call(UnitLevel,"player"), context=context, first=first, second=second}
+        level=level, maxLevel=maxLevel, leveling=leveling, context=context, first=first, second=second}
+    if self.SyncInventoryEvents then self:SyncInventoryEvents() end
     return self.profile
 end
 
 function GM:SetPriority(which, stat)
+    if self.profile.leveling then return end
     self:StopEquipment()
     local context=self.profile.context
     local current={first=self.profile.first, second=self.profile.second}
@@ -88,7 +107,8 @@ function GM:SetPriority(which, stat)
 end
 
 function GM:ScheduleScan(event, service)
-    if not service and not self.bagsOpen then self.inventoryDirty=true;return end
+    self:SyncInventoryEvents()
+    if not service and not self.bagsOpen and not (self.config and self.config.automatic) then self.inventoryDirty=true;return end
     if service then self.scanService=true end
     if not self.db or self.scanPending then return end
     self.scanPending=true
@@ -96,8 +116,9 @@ function GM:ScheduleScan(event, service)
         self.scanPending=false
         local serviceScan=self.scanService
         self.scanService=nil
-        if not serviceScan and not self.bagsOpen then self.inventoryDirty=true;return end
-        if not InCombatLockdown() then self.inventoryDirty=nil;self:Scan() end
+        if not serviceScan and not self.bagsOpen and not (self.config and self.config.automatic) then self.inventoryDirty=true;return end
+        if InCombatLockdown() then self.inventoryDirty=true;return end
+        self.inventoryDirty=nil;self:Scan()
     end)
 end
 
@@ -129,7 +150,7 @@ frame:SetScript("OnEvent",function(_,event,arg,...)
         GM:InstallBagHooks()
         SLASH_GEARMEMORY1="/gm";SLASH_GEARMEMORY2="/gearmemory"
         SlashCmdList.GEARMEMORY=function(message)
-            if message=="stop" then GM.config.automatic=false;GM:StopEquipment();GM:RefreshUI()
+            if message=="stop" then GM.config.automatic=false;GM.db.levelingAutomatic=false;GM:StopEquipment();GM:RefreshUI()
             elseif message=="explain" then GM:PrintExplain()
             elseif message=="diag" then GM:PrintDiagnostics()
             elseif message=="aviso" or message=="toast" then
@@ -158,7 +179,7 @@ frame:SetScript("OnEvent",function(_,event,arg,...)
         GM:StopEquipment();GM.blocked={}
     end
     if event=="GET_ITEM_INFO_RECEIVED" or event=="ITEM_DATA_LOAD_RESULT" then
-        if not GM.bagsOpen then GM.inventoryDirty=true;return end
+        if not GM.bagsOpen and not GM.config.automatic then GM.inventoryDirty=true;return end
         if not GM.waiting or not GM.waiting[arg] then return end
         GM.waiting[arg]=nil
     end

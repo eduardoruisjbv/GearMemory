@@ -39,7 +39,6 @@ function GM:EquipConfirmed(entry)
 end
 
 function GM:StartEquipment(automatic, forced)
-    if automatic and not self.bagsOpen then return false end
     if self.work or not self:CanEquipNow() or automatic and (not self.config.automatic or self.manual) then return false end
     self:Scan(true)
     self.blocked=self.blocked or {}
@@ -58,6 +57,7 @@ function GM:StartEquipment(automatic, forced)
         end
     end
     if not nextItem then self.manual=nil;return false end
+    if self:IsProtectedHeirloom(self.worn[nextItem.target]) then return false end
     local item=nextItem.item
     local container=self:Call(C_Container.GetContainerItemInfo,item.bag,item.slot)
     local guid=self:Call(C_Item.GetItemGUID,item.location)
@@ -72,7 +72,7 @@ function GM:StartEquipment(automatic, forced)
         if free<1 then self:Print(L["Abra um espaço nas bolsas antes de trocar as armas."]);self.manual=nil;return false end
     end
     local state={item=item,target=nextItem.target,generation=self.generation or 0,automatic=automatic,started=GetTime(),
-        timeout=forced and 20 or 2}
+        timeout=(forced or item.bound~=true or item.refundable==true) and 20 or 2}
     self.work=state
     -- Native API only. We never dismiss bind/refund confirmations, inject input,
     -- clear the user's cursor, or rely on an optimistic return value as success.
@@ -81,7 +81,9 @@ function GM:StartEquipment(automatic, forced)
         if self.work~=state or state.generation~=(self.generation or 0) then return end
         if not self:CanEquipNow() or state.automatic and not self.config.automatic then self:StopEquipment();self:RefreshUI();return end
         local location=ItemLocation:CreateFromEquipmentSlot(state.target)
-        if self:Call(C_Item.GetItemGUID,location)==item.guid then
+        local equippedGUID=self:Call(C_Item.GetItemGUID,location)
+        local equippedLink=self:Call(GetInventoryItemLink,"player",state.target)
+        if equippedGUID==item.guid or equippedGUID and equippedLink==item.link then
             self.work=nil
             self:Print(L["Equipado: "]..item.link)
             self:Toast(L["Equipamento trocado · "]..(self.contextNames[self.profile.context] or ""),

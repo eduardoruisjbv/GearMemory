@@ -46,49 +46,44 @@ function GM:Primary(item)
     return highest,has
 end
 
-function GM:Fits(item)
-    local p=self.profile
-    if not item.gear or item.incomplete or item.quest or not p.spec or not p.primary or not armor[p.class] then return false end
-    if item.minLevel and (not p.level or item.minLevel>p.level) then return false end
-    if item.equippable~=true or type(item.specs)~="table" then return false end
-    if armorSlots[item.equipLoc] and item.subclass~=armor[p.class] then return false end
-    if item.class==2 and not weapons[p.class][item.subclass] then return false end
-    if #item.specs>0 then
-        local matches=false
-        for _,spec in ipairs(item.specs) do if spec==p.spec then matches=true end end
-        if not matches then return false end
-    end
-    local primary,has=self:Primary(item)
-    if has and primary<=0 or item.primaryInactive and not item.snapshot then return false end
-    if (armorSlots[item.equipLoc] or item.class==2) and primary<=0 then return false end
-    if item.equipLoc=="INVTYPE_SHIELD" then return p.spec==73 or p.spec==66 or p.spec==65 or p.class=="SHAMAN" and p.spec~=263 end
-    if item.equipLoc=="INVTYPE_HOLDABLE" then return p.primary==4 end
-    return true
-end
-
--- Mirror of Fits that names the first failing condition (used by /gm diag only).
+-- Leveling eligibility depends on usable equipment and current item level,
+-- never a specialization loot list or the presence of secondary/primary stats.
 function GM:FitsWhy(item)
     local p=self.profile
     if not item.gear then return "não é equipamento" end
-    if item.incomplete then return "incompleto: "..tostring(item.why) end
     if item.quest then return "marcado como item de missão" end
-    if not p.spec or not p.primary then return "sem especialização/atributo principal no perfil" end
     if not armor[p.class] then return "classe sem tipo de armadura" end
-    if item.minLevel and (not p.level or item.minLevel>p.level) then return "nível mínimo "..tostring(item.minLevel).." > nível "..tostring(p.level) end
+    if type(item.level)~="number" then return "sem ilvl para comparar" end
+    if item.minLevel and (not p.level or item.minLevel>p.level) then return "nível mínimo acima do personagem" end
     if item.equippable~=true then return "IsEquippableItem="..tostring(item.equippable) end
-    if type(item.specs)~="table" then return "sem lista de especializações" end
-    if armorSlots[item.equipLoc] and item.subclass~=armor[p.class] then return "tipo de armadura "..tostring(item.subclass).." ≠ "..tostring(armor[p.class]) end
+    if armorSlots[item.equipLoc] and item.subclass~=armor[p.class] then return "tipo de armadura incompatível" end
     if item.class==2 and not weapons[p.class][item.subclass] then return "arma não usável pela classe" end
+    if item.equipLoc=="INVTYPE_SHIELD" and not (p.spec==73 or p.spec==66 or p.spec==65
+        or p.class=="SHAMAN" and p.spec~=263) then return "escudo incompatível" end
+    if item.equipLoc=="INVTYPE_HOLDABLE" and p.primary~=4 then return "mão secundária incompatível" end
+    if p.leveling then
+        if not item.snapshot and C_PlayerInfo and C_PlayerInfo.CanUseItem
+            and self:Call(C_PlayerInfo.CanUseItem,item.id)==false then return "o personagem não pode usar o item" end
+        return nil
+    end
+    local automatic=self.config and self.config.automatic
+    if item.incomplete and not automatic then return "incompleto: "..tostring(item.why) end
+    if type(item.stats)~="table" then return "sem atributos para comparar" end
+    if not p.spec or not p.primary then return "sem especialização/atributo principal no perfil" end
+    if type(item.specs)~="table" then return "sem lista de especializações" end
     if #item.specs>0 then
         local matches=false
         for _,spec in ipairs(item.specs) do if spec==p.spec then matches=true end end
-        if not matches then return "lista de especializações do item não inclui a atual ("..tostring(p.spec)..")" end
+        if not matches then return "lista de especializações do item não inclui a atual" end
     end
     local primary,has=self:Primary(item)
-    if has and primary<=0 then return "atributo principal do item é 0 para o perfil" end
-    if item.primaryInactive and not item.snapshot then return "atributo principal marcado como inativo (linha cinza no tooltip)" end
+    if has and primary<=0 then return "atributo principal incompatível" end
+    if item.primaryInactive and not item.snapshot then return "atributo principal inativo" end
     if (armorSlots[item.equipLoc] or item.class==2) and primary<=0 then return "armadura/arma sem atributo principal" end
-    return nil
+end
+
+function GM:Fits(item)
+    return self:FitsWhy(item)==nil
 end
 
 -- Exact twins: same slot, level, stats, gems and enchants. Swapping one for the other changes
@@ -152,6 +147,7 @@ end
 -- upgrade ceiling). Curated trinkets add virtual item level by rating.
 function GM:EffectiveLevel(item, context)
     local level=item.level or 0
+    if self.profile.leveling then return level end
     if context=="pvp" then level=item.pvpLevel or level
     else level=self:UpgradePotential(item) or level end
     local rating=self:TrinketRating(item,context)
@@ -172,7 +168,7 @@ function GM:Score(item, context)
     local p=self.profile
     local secondary=0
     for _,stat in ipairs(self.stats) do
-        local weight=stat==p.first and 3 or stat==p.second and 2 or 1
+        local weight=p.leveling and 1 or (stat==p.first and 3 or stat==p.second and 2 or 1)
         secondary=secondary+statOf(item,self.statKeys[stat])*weight
     end
     if not self.tertiaryOrder then
@@ -193,6 +189,12 @@ end
 -- `count` scales the threshold for sums over several slots.
 function GM:Compare(a,b,context,count)
     count=count or 1
+    if self.profile and self.profile.leveling then
+        if a[3]~=b[3] then return a[3]>b[3] and 1 or -1,"ilvl" end
+        if a[1]~=b[1] then return a[1]>b[1] and 1 or -1,"principal" end
+        if a[2]~=b[2] then return a[2]>b[2] and 1 or -1,"secundarios" end
+        return 0
+    end
     if context=="pvp" then
         if a[3]~=b[3] then return a[3]>b[3] and 1 or -1,"ilvl" end
         if a[1]~=b[1] then return a[1]>b[1] and 1 or -1,"principal" end
@@ -304,21 +306,45 @@ function GM:SetLosses(plan)
     return losses
 end
 
+function GM:IsHeirloom(item)
+    return item and item.quality==(Enum.ItemQuality.Heirloom or 7)
+end
+
+function GM:IsProtectedHeirloom(item)
+    local level=self:Call(UnitLevel,"player")
+    return self:IsHeirloom(item) and type(level)=="number" and level<=50
+end
+
 function GM:ReviewReason(item, old, loss, ignoreBind)
+    if self:IsProtectedHeirloom(old) then return L["Herança equipada: preservada"] end
     local context=self.profile.context
     if item.storage=="bank" then return item.snapshot and L["Banco: registro da última visita; confira e retire o item"] or L["Banco: retire para as bolsas"] end
-    -- Only what is worn (and the saved sets) can change a comparison for every item; an
-    -- unreadable bag item blocks just itself (next line), not every other upgrade.
-    if self.wornIncomplete or self.setsUnknown then return L["Aguardando dados de itens/conjuntos"] end
-    if item.incomplete or old and old.incomplete then return L["Dados incompletos"] end
+    -- Adding a plain, non-unique item to a confirmed empty single slot removes
+    -- nothing: unreadable unrelated gear/sets cannot change that comparison.
+    -- Pair slots/weapons, unique and set items still need the complete state.
+    local targets=slots[item.equipLoc]
+    local emptyAddition=not old and targets and #targets==1
+        and self.emptySlots and self.emptySlots[targets[1]]==true
+        and item.unique==false and not (item.uniqueCategory and item.uniqueCategory>0)
+        and not (item.setID and item.setID>0) and not item.effect
+    local automatic=self.config and self.config.automatic
+    if not automatic and (self.wornIncomplete or self.setsUnknown) and not emptyAddition then
+        return L["Aguardando dados de itens/conjuntos"]
+    end
+    if not automatic and (item.incomplete or old and old.incomplete) then return L["Dados incompletos"] end
     if item.storage=="bag" then
-        if not item.guid or self.copies[item.link]~=1 then return L["Identificação/cópias do item exigem revisão"] end
+        if not item.guid then return L["Identificação/cópias do item exigem revisão"] end
         if item.locked then return L["Item bloqueado"] end
         -- Refund: the game itself asks the player to confirm before equipping a refundable item
         -- (the addon never dismisses that dialog), so it is not a reason to hold the upgrade back.
-        if not ignoreBind and (item.bound~=true or item.account~=false or item.bindingReview) then return self.bindReason end
+        if not automatic and not ignoreBind and (item.bound~=true or item.account~=false or item.bindingReview) then return self.bindReason end
     end
     if item.unique==nil or old and old.unique==nil then return L["Unicidade desconhecida"] end
+    -- Leveling auto uses the actual stat/ilvl ranking, including replacements of
+    -- legacy artifacts/heirlooms. These review labels do not veto the upgrade.
+    if self.profile.leveling and old and type(old.level)=="number"
+        and item.level-old.level<2 then return L["Leveling: ganho menor que 2 de ilvl"] end
+    if automatic then return end
     if item.quality and item.quality>=5 or old and old.quality and old.quality>=5 then return L["Item especial: revise os efeitos"] end
     if loss then return loss end
     if self.setItems[item.id] or old and self.setItems[old.id] then return L["Conjunto salvo: revise"] end
@@ -490,7 +516,7 @@ function GM:BuildPlan(candidates, context)
             if not dualOnly and not shield then consider(main,nil) end
         end
     end
-    local margin=self.rules.styleSwitchIlvl*2
+    local margin=(self.profile.leveling and 2 or self.rules.styleSwitchIlvl)*2
     local function accept(style,entry)
         if currentMain then
             if style==currentStyle or entry.main==currentMain and entry.off==currentOff then return true end
@@ -507,6 +533,17 @@ function GM:BuildPlan(candidates, context)
         if entry and accept(style,entry) and (not result or self:Better(entry.score,result.score,context,2)) then result=entry end
     end
     if result then plan[16],plan[17]=result.main,result.off end
+    -- Preserve worn heirlooms through player level 50 even when their scaled level temporarily falls
+    -- behind a drop. Weapons form a pair: do not remove a protected offhand by
+    -- replacing the main hand with a two-handed item, or vice versa.
+    for slot,old in pairs(self.worn) do
+        if self:IsProtectedHeirloom(old) then plan[slot]=old end
+    end
+    if self:IsProtectedHeirloom(self.worn[16]) and self:TwoHanded(self.worn[16]) then
+        plan[17]=self.worn[17]
+    elseif self:IsProtectedHeirloom(self.worn[17]) and self:TwoHanded(plan[16]) then
+        plan[16]=self.worn[16]
+    end
     return plan
 end
 

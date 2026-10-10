@@ -1,4 +1,4 @@
-# GearMemory 0.2.0 beta
+# GearMemory 0.3.8 beta
 
 GearMemory is a standalone World of Warcraft Retail 12.1 addon that compares your equipped gear, backpack items, and bank items against the priorities you choose for your current specialization. The interface follows the client language: Brazilian Portuguese for ptBR and English for other clients.
 

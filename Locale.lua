@@ -2,6 +2,14 @@
 local _, GM = ...
 local portuguese = GetLocale() == "ptBR"
 local english = {
+    ["Herança equipada: preservada"]="Equipped heirloom: preserved",
+    ["Leveling: melhoria de +2 ilvl"]="Leveling: +2 item level upgrade",
+    ["Leveling: equipa por ilvl atual; +2 ilvl já troca automaticamente fora de combate."]="Leveling: current item level first; +2 item level triggers an automatic swap out of combat.",
+    ["Leveling: ganho menor que 2 de ilvl"]="Leveling: less than 2 item levels gained",
+    ["Leveling"]="Leveling",
+    ["Secundários: disponíveis no nível máximo"]="Secondary priorities: available at max level",
+    ["Leveling: atributo principal + ilvl"]="Leveling: primary stat + item level",
+    ["Leveling: principal primeiro, depois ilvl atual; secundários sem prioridades personalizadas."]="Leveling: primary stat first, then current item level; no custom secondary priorities.",
     ["Perfil de equipamento: "] = "Gear profile: ",
     ["Aviso na tela "] = "On-screen notice ",
     ["desligado."] = "off.",

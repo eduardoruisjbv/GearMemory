@@ -24,6 +24,7 @@ local function button(parent,label,x,y,width,callback)
 end
 
 function GM:PriorityMenu(owner,which)
+    if self.profile.leveling then return end
     if MenuUtil and MenuUtil.CreateContextMenu then
         MenuUtil.CreateContextMenu(owner,function(_,root)
             root:CreateTitle((which=="first" and L["Prioridade 1"] or L["Prioridade 2"]).." · "..(self.contextNames[self.profile.context] or ""))
@@ -39,11 +40,11 @@ function GM:PriorityMenu(owner,which)
 end
 
 StaticPopupDialogs.GEARMEMORY_AUTOMATIC={
-    text=L["Ativar equipamento automático no GearMemory para esta especialização?\n\nMelhorias seguras das bolsas serão equipadas fora de combate, conforme seus atributos. Itens com efeitos, conjuntos ou vínculo incerto ficam para revisão."],
+    text="Ativar equipamento automático?\n\nLeveling: ganho de pelo menos 2 ilvl; heranças equipadas são preservadas até o nível 50. A partir do 51, seguem a comparação normal. No nível máximo: atributo principal e prioridades configuradas. Equipa fora de combate, inclusive itens que vinculam. Efeitos não são simulados. Se o WoW pedir confirmação nativa, confirme para concluir a troca.",
     button1=L["Ativar"],button2=L["Cancelar"],timeout=0,whileDead=false,hideOnEscape=true,preferredIndex=3,
     OnAccept=function(_,data)
         if not data or GM.config~=data.config or GM.profile.spec~=data.spec then return end
-        GM.config.automatic=true;GM.config.consent=1;GM.blocked={};GM:ScheduleScan();GM:RefreshUI()
+        GM.config.automatic=true;GM.config.consent=1;if GM.profile.leveling then GM.db.levelingAutomatic=true end;GM.blocked={};GM:ScheduleScan();GM:RefreshUI()
     end,
     OnCancel=function() GM:RefreshUI() end,
 }
@@ -74,7 +75,7 @@ function GM:CreateUI()
     f.automatic:SetPoint("TOPLEFT",285,-182);f.automatic:SetSize(30,30)
     f.automatic.label=text(f,"small",318,-191,400);f.automatic.label:SetText(L["Equipar automaticamente (fora de combate)"])
     f.automatic:SetScript("OnClick",function(b)
-        if self.config.automatic then self.config.automatic=false;self:StopEquipment();self:RefreshUI()
+        if self.config.automatic then self.config.automatic=false;if self.profile.leveling then self.db.levelingAutomatic=false end;self:StopEquipment();self:RefreshUI()
         else
             b:SetChecked(false)
             StaticPopup_Show("GEARMEMORY_AUTOMATIC",nil,nil,{config=self.config,spec=self.profile.spec})
@@ -92,7 +93,7 @@ function GM:CreateUI()
     f.empty=text(content,"normal",10,-16,660)
     f.equip=button(f,L["Equipar melhorias"],20,-599,200,function() self:EquipImprovements() end)
     f.refresh=button(f,L["Atualizar"],235,-599,120,function() self:Scan() end)
-    f.stop=button(f,L["Parar"],370,-599,90,function() self.config.automatic=false;self:StopEquipment();self:RefreshUI() end)
+    f.stop=button(f,L["Parar"],370,-599,90,function() self.config.automatic=false;if self.profile.leveling then self.db.levelingAutomatic=false end;self:StopEquipment();self:RefreshUI() end)
     f.footer=text(f,"small",20,-638,710)
     f.footer:SetText(L["|cffeac064Revisar|r: efeitos, conjuntos e escala PvP. Comparação de atributos; não simula DPS."])
     self.ui=f;self.view="suggestions";f:Hide()
@@ -121,6 +122,7 @@ function GM:BuildRows()
 end
 
 function GM:RefreshUI()
+    self:SyncInventoryEvents()
     local f=self.ui
     if not f or not f:IsShown() or not self.config then return end
     local p=self.profile
@@ -128,10 +130,18 @@ function GM:RefreshUI()
     f.primary:SetText(L["Atributo principal: "]..(self.primaryNames[p.primary] or L["aguardando especialização"])..L["  ·  automático e sempre acima dos secundários"])
     f.first.label:SetText(L["Prioridade 1: "]..self.statNames[p.first].."  ▾")
     f.second.label:SetText(L["Prioridade 2: "]..self.statNames[p.second].."  ▾")
+    f.first:SetEnabled(not p.leveling);f.second:SetEnabled(not p.leveling)
+    f.first:SetAlpha(p.leveling and 0.45 or 1);f.second:SetAlpha(p.leveling and 0.45 or 1)
+    if p.leveling then
+        f.first.label:SetText(L["Secundários: disponíveis no nível máximo"])
+        f.second.label:SetText(L["Leveling: melhoria de +2 ilvl"])
+    end
+    f.rule:SetText(p.leveling and L["Leveling: equipa por ilvl atual; +2 ilvl já troca automaticamente fora de combate."]
+        or L["Principal decide primeiro; com o mesmo principal, +5 de ilvl vence. Secundários: ×3, ×2, ×1. PvP compara o ilvl PvP."])
     f.context.label:SetText(L["Perfil: "]..(self.config.context=="auto" and "Auto · " or "")..(self.contextNames[p.context] or p.context).."  ▾")
     f.automatic:SetChecked(self.config.automatic==true)
     local count=#(self.ready or {})
-    local state=self.work and L["Equipando…"] or InCombatLockdown() and L["Em combate; atualização ao sair."] or self.wornIncomplete and L["Aguardando dados dos itens."] or count..L[" melhoria(s) segura(s) nas bolsas."]
+    local state=self.work and L["Equipando…"] or InCombatLockdown() and L["Em combate; atualização ao sair."] or self.wornIncomplete and not self.config.automatic and L["Aguardando dados dos itens."] or count..L[" melhoria(s) segura(s) nas bolsas."]
     if self.view=="categories" then
         state=p.context=="pvp" and L["Categorias PvP: ranking de atributos-base; revise efeitos e escala PvP."] or L["Melhores candidatos de cada tipo de item por atributos."]
     end
@@ -145,7 +155,7 @@ function GM:RefreshUI()
     f.categories.label:SetTextColor(self.view=="categories" and 0.25 or 0.65,0.79,0.73)
     local rows=self:BuildRows()
     f.empty:SetShown(#rows==0)
-    f.empty:SetText(self.wornIncomplete and L["Aguardando os dados dos itens…"] or L["Nenhuma melhoria disponível para suas prioridades."])
+    f.empty:SetText(self.wornIncomplete and not self.config.automatic and L["Aguardando os dados dos itens…"] or L["Nenhuma melhoria disponível para suas prioridades."])
     for index,entry in ipairs(rows) do
         local row=f.rows[index]
         if not row then

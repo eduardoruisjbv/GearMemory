@@ -65,6 +65,21 @@ function GM:ReadTooltip(item)
             local text=clean(line[field])
             if not text then item.incomplete=true;item.why="texto do tooltip secreto";return end
             if bonusLine and field=="leftText" then addBonus(item,text) end
+            if field=="leftText" and not bonusLine then
+                local r,g,b
+                if line.leftColor then r,g,b=self:Call(line.leftColor.GetRGB,line.leftColor) end
+                local inactive=r and math.abs(r-g)<0.05 and math.abs(g-b)<0.05 and r<0.65
+                if not inactive then
+                    for _,entry in ipairs(labels()) do
+                        local amount=text:match("^%s*%+?(%d[%d%.,]*)%s+"..entry.text.."%s*$")
+                        amount=amount and tonumber((amount:gsub("[%.,]","")))
+                        if amount then
+                            item.stats=item.stats or {}
+                            item.stats[entry.key]=math.max(item.stats[entry.key] or 0,amount)
+                        end
+                    end
+                end
+            end
             local track,current,maximum=text:match(upgradePattern or "^$")
             if track and tonumber(current) and tonumber(maximum) then
                 item.upgradeTrack,item.upgradeCur,item.upgradeMax=track,tonumber(current),tonumber(maximum)
@@ -80,7 +95,7 @@ function GM:ReadTooltip(item)
             end
             for _,global in ipairs({"ITEM_STARTS_QUEST","ITEM_BIND_QUEST","ITEM_BIND_TO_BNETACCOUNT",
                 "ITEM_ACCOUNTBOUND","ITEM_BNETACCOUNTBOUND","ITEM_ACCOUNTBOUND_UNTIL_EQUIP",
-                "ITEM_BIND_TO_ACCOUNT_UNTIL_EQUIP","BIND_TRADE_TIME_REMAINING"}) do
+                "ITEM_BIND_TO_ACCOUNT_UNTIL_EQUIP"}) do
                 local prefix=label(_G[global])
                 if prefix~="" and text:find(prefix,1,true) then item.bindingReview=true end
             end
@@ -88,7 +103,7 @@ function GM:ReadTooltip(item)
             -- are ignored; a grey primary line matching this spec needs review.
             local statLabel=GM.primaryNames[self.profile.primary]
             local localized=({[1]=ITEM_MOD_STRENGTH_SHORT,[2]=ITEM_MOD_AGILITY_SHORT,[4]=ITEM_MOD_INTELLECT_SHORT})[self.profile.primary]
-            if localized and text:find(localized,1,true) and text:find("%d") then
+            if field=="leftText" and localized and text:find(localized,1,true) and text:find("%d") then
                 local color=line.leftColor
                 if color then
                     local r,g,b=self:Call(color.GetRGB,color)
@@ -97,12 +112,18 @@ function GM:ReadTooltip(item)
             end
         end
     end
+    if self.profile.leveling and item.quality and item.quality<=2 and item.stats==nil then
+        -- A fully read starter tooltip may genuinely contain no attribute lines.
+        item.stats={}
+    end
     if item.pvp and not item.pvpLevel then item.pvpUnknown=true end
 end
 
 function GM:ReadItem(link, storage, bag, slot, inventorySlot, container)
     local item={link=link, storage=storage, bag=bag, slot=slot, inventorySlot=inventorySlot}
-    local info={self:Call(C_Item.GetItemInfo,link)}
+    item.quality=container and container.quality
+        or inventorySlot and self:Call(GetInventoryItemQuality,"player",inventorySlot)
+    local info={self:CachedItemCall(C_Item.GetItemInfo,link)}
     item.id=container and container.itemID or self:Call(C_Item.GetItemInfoInstant,link)
     if not info[1] then
         item.incomplete=true;item.why="GetItemInfo ainda não carregou"
@@ -118,29 +139,38 @@ function GM:ReadItem(link, storage, bag, slot, inventorySlot, container)
     item.location=bag and ItemLocation:CreateFromBagAndSlot(bag,slot) or ItemLocation:CreateFromEquipmentSlot(inventorySlot)
     item.guid=self:Call(C_Item.GetItemGUID,item.location)
     item.locked=container and container.isLocked
-    item.level=self:Call(C_Item.GetCurrentItemLevel,item.location) or self:Call(C_Item.GetDetailedItemLevelInfo,item.link)
+    local cache=_G.MemoryItemCache
+    local saved=self.db.equipmentCache
+    local previous=inventorySlot and saved and saved.slots[inventorySlot]
+    local confirmed=previous and item.guid and previous.guid==item.guid and previous.link==item.link
+        and saved.session==cache.session and saved.scope==cache.Scope()
+        and saved.generation==(cache.generation or 0)
+    item.level=confirmed and previous.ilvl or self:CachedItemLevel(item.location,item.link,item.guid)
+        or self:CachedItemCall(C_Item.GetDetailedItemLevelInfo,item.link) or info[4]
     item.bound=self:Call(C_Item.IsBound,item.location)
     item.refundable=self:Call(C_Item.CanBeRefunded,item.location)
     item.account=self:Call(C_Item.IsBoundToAccountUntilEquip,item.location)
-    item.stats=self:Call(C_Item.GetItemStats,item.link)
+    item.stats=self:CachedItemCall(C_Item.GetItemStats,item.link)
     for key,value in pairs(item.stats or {}) do
         if type(key)=="string" and key:find("^EMPTY_SOCKET_") and type(value)=="number" then
             item.emptySockets=(item.emptySockets or 0)+value
         end
     end
-    item.specs=self:Call(C_Item.GetItemSpecInfo,item.link)
+    item.specs=self:CachedItemCall(C_Item.GetItemSpecInfo,item.link)
     -- Rings, necklaces and cloaks have no primary stat, so the game reports no specialization
     -- list for them: that means "any spec", not "data missing".
     if type(item.specs)~="table" and (item.equipLoc=="INVTYPE_FINGER" or item.equipLoc=="INVTYPE_NECK"
-        or item.equipLoc=="INVTYPE_CLOAK") then item.specs={} end
-    item.uniqueCategory,item.uniqueMax=self:Call(C_Item.GetItemUniqueness,item.link)
-    item.unique=self:Call(C_Item.GetItemUniquenessByID,item.link)
+        or item.equipLoc=="INVTYPE_CLOAK"
+        or self.profile.leveling and item.quality and item.quality<=2) then item.specs={} end
+    item.uniqueCategory,item.uniqueMax=self:CachedItemCall(C_Item.GetItemUniqueness,item.link)
+    item.unique=self:CachedItemCall(C_Item.GetItemUniquenessByID,item.link)
     item.equippable=self:Call(C_Item.IsEquippableItem,item.link)
-    local _,spell=self:Call(C_Item.GetItemSpell,item.link)
+    local _,spell=self:CachedItemCall(C_Item.GetItemSpell,item.link)
     item.effect=spell~=nil
     if bag then
         local quest=self:Call(C_Container.GetContainerItemQuestInfo,bag,slot)
-        item.quest=type(quest)~="table" or quest.isQuestItem or quest.questID~=nil
+        item.quest=type(quest)=="table" and (quest.isQuestItem==true
+            or type(quest.questID)=="number" and quest.questID>0) or false
     end
     if type(item.stats)~="table" then item.incomplete=true;item.why="sem estatísticas"
     elseif type(item.specs)~="table" then item.incomplete=true;item.why="sem info de especialização"
@@ -148,7 +178,7 @@ function GM:ReadItem(link, storage, bag, slot, inventorySlot, container)
     for _,value in pairs(item.stats or {}) do
         if issecretvalue and issecretvalue(value) then item.incomplete=true;item.why="estatística secreta";item.stats={};break end
     end
-    self:ReadTooltip(item)
+    self:ReadCachedTooltip(item)
     return item
 end
 
@@ -194,11 +224,38 @@ function GM:ReadBank()
     return result
 end
 
+function GM:CacheEquippedSlots()
+    local cache=_G.MemoryItemCache
+    local snapshot={version=1,session=cache.session,scope=cache.Scope(),generation=cache.generation or 0,level=self.profile.level,spec=self.profile.spec,atMax=not self.profile.leveling,
+        updated=time(),slots={}}
+    for slot,item in pairs(self.worn or {}) do
+        local score=self:Score(item,self.profile.context)
+        snapshot.slots[slot]={guid=item.guid,link=item.link,id=item.id,ilvl=item.level,quality=item.quality,
+            primary=score[1],secondary=score[2],stats=_G.MemoryItemCache.Copy(item.stats or {}),
+            bonusStats=_G.MemoryItemCache.Copy(item.bonusStats or {}),incomplete=item.incomplete or nil}
+    end
+    for slot in pairs(self.emptySlots or {}) do snapshot.slots[slot]={empty=true,ilvl=0} end
+    self.db.equipmentCache=snapshot
+end
+
+function GM:ReadCachedTooltip(item)
+    local key=tostring(item.guid or "")..":"..item.link..":"..tostring(item.bound)..":"..tostring(item.account)
+    local values=_G.MemoryItemCache.Read(self.ReadTooltip,key,function()
+        self:ReadTooltip(item)
+        if item.incomplete then return nil end
+        local result={}
+        for _,field in ipairs({"stats","bonusStats","primaryInactive","pvp","pvpLevel","pvpUnknown",
+            "effect","bindingReview","upgradeTrack","upgradeCur","upgradeLevel","upgradeMax","emptySockets"}) do result[field]=item[field] end
+        return result
+    end)
+    if values then for field,value in pairs(values) do item[field]=value end end
+end
+
 function GM:Scan(skipAutomatic)
     if not self.db or InCombatLockdown() then return end
     self:ReadProfile()
     self.waiting={};self.items={};self.worn={};self.incomplete=false;self.copies={}
-    self.wornIncomplete=false;self.incompleteList={}
+    self.wornIncomplete=false;self.incompleteList={};self.emptySlots={}
     self.setItems={}
     local sets=self:Call(C_EquipmentSet and C_EquipmentSet.GetEquipmentSetIDs)
     self.setsUnknown=type(sets)~="table"
@@ -216,9 +273,15 @@ function GM:Scan(skipAutomatic)
                 self.incomplete=true;self.wornIncomplete=true
                 self.incompleteList[#self.incompleteList+1]={item=item,where="equipado: "..self.slotNames[slot]}
             end
-        elseif self:Call(GetInventoryItemID,"player",slot) then
-            self.incomplete=true;self.wornIncomplete=true
-            self.incompleteList[#self.incompleteList+1]={item={why="link do equipado indisponível"},where="equipado: "..self.slotNames[slot]}
+        else
+            local occupied=self:Call(C_Item.DoesItemExist,ItemLocation:CreateFromEquipmentSlot(slot))
+            if occupied==false then
+                self.emptySlots[slot]=true
+            else
+                -- nil/error/secret is unknown, never proof of an empty slot.
+                self.incomplete=true;self.wornIncomplete=true
+                self.incompleteList[#self.incompleteList+1]={item={why="link do equipado indisponível"},where="equipado: "..self.slotNames[slot]}
+            end
         end
     end end
     for bag=0,NUM_TOTAL_EQUIPPED_BAG_SLOTS or 5 do
@@ -239,6 +302,7 @@ function GM:Scan(skipAutomatic)
     end
     for _,item in ipairs(self:ReadBank()) do self.items[#self.items+1]=item end
     self:Evaluate()
+    self:CacheEquippedSlots()
     self:RefreshUI()
     -- Item data can arrive late or never fire an event for what we could not read:
     -- look again a few times instead of waiting for a manual refresh.
@@ -269,6 +333,9 @@ end
 function GM:DiagLines()
     local out={}
     local function add(text) out[#out+1]=text end
+    local cache=_G.MemoryItemCache
+    add("diag: cache hits="..tostring(cache and cache.hits)..", leituras="..tostring(cache and cache.misses)
+        ..", slots gravados="..tostring(self.db.equipmentCache and self.db.equipmentCache.updated))
     add("diag: equipado incompleto="..tostring(self.wornIncomplete)..", conjuntos desconhecidos="..tostring(self.setsUnknown)
         ..", tentativas="..tostring(self.retryScans or 0))
     add("diag: pronto para equipar="..#(self.ready or {})..", automático="..tostring(self.config.automatic)..", pode equipar agora="..tostring(self:CanEquipNow())..", em combate="..tostring(InCombatLockdown()))
