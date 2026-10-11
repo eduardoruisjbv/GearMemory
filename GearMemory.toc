@@ -17,3 +17,4 @@ Inventory.lua
 Evaluation.lua
 Equipment.lua
 UI.lua
+Settings.lua
