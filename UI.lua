@@ -51,6 +51,30 @@ function GM:PriorityMenu(owner,which)
     end
 end
 
+function GM:WeaponStyleMenu(owner)
+    local _,_,dualOnly,dual,shield,only2h,ranged=self:WeaponOptions({})
+    local options={{"auto",L["Padrão da especialização"]}}
+    local can2h=only2h or self.profile.spec==72 or not (dualOnly or shield or ranged)
+    if can2h then options[#options+1]={"2h",L["Duas mãos"]} end
+    if dual then options[#options+1]={"1h",L["Duas armas de uma mão"]} end
+    if not (MenuUtil and MenuUtil.CreateContextMenu) then
+        local current=self.db.weaponStyle or "auto"
+        for index,option in ipairs(options) do
+            if option[1]==current then self:SetWeaponStyle(options[index%#options+1][1]);return end
+        end
+        self:SetWeaponStyle("auto")
+        return
+    end
+    MenuUtil.CreateContextMenu(owner,function(_,root)
+        root:CreateTitle(L["Prioridade de estilo de arma"])
+        for _,option in ipairs(options) do
+            local value,label=option[1],option[2]
+            root:CreateRadio(label,function() return self.db.weaponStyle==value end,
+                function() self:SetWeaponStyle(value) end)
+        end
+    end)
+end
+
 StaticPopupDialogs.GEARMEMORY_AUTOMATIC={
     text="Ativar equipamento automático?\n\nLeveling: ganho de pelo menos 2 ilvl; heranças equipadas são preservadas até o nível 50. A partir do 51, seguem a comparação normal. No nível máximo: atributo principal e prioridades configuradas. Equipa fora de combate, inclusive itens que vinculam. Efeitos não são simulados. Se o WoW pedir confirmação nativa, confirme para concluir a troca.",
     button1=L["Ativar"],button2=L["Cancelar"],timeout=0,whileDead=false,hideOnEscape=true,preferredIndex=3,
@@ -99,12 +123,13 @@ function GM:CreateUI()
             StaticPopup_Show("GEARMEMORY_AUTOMATIC",nil,nil,{config=self.config,spec=self.profile.spec})
         end
     end)
-    f.suggestions=button(f,L["Melhorias"],20,-228,140,function() self.view="suggestions";self:RefreshUI() end)
-    f.explainButton=button(f,L["Explicar"],410,-228,110,function() self:PrintExplain() end)
-    f.categories=button(f,L["Melhores por categoria"],175,-228,220,function() self.view="categories";self:RefreshUI() end)
-    f.status=text(f,"small",20,-271,710);f.status:SetTextColor(unpack(COLORS.text))
+    f.weaponStyle=button(f,"",20,-220,300,function(b) self:WeaponStyleMenu(b) end)
+    f.suggestions=button(f,L["Melhorias"],20,-260,140,function() self.view="suggestions";self:RefreshUI() end)
+    f.explainButton=button(f,L["Explicar"],410,-260,110,function() self:PrintExplain() end)
+    f.categories=button(f,L["Melhores por categoria"],175,-260,220,function() self.view="categories";self:RefreshUI() end)
+    f.status=text(f,"small",20,-303,710);f.status:SetTextColor(unpack(COLORS.text))
     local scroll=CreateFrame("ScrollFrame",nil,f,"UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT",20,-298);scroll:SetPoint("BOTTOMRIGHT",-42,79)
+    scroll:SetPoint("TOPLEFT",20,-330);scroll:SetPoint("BOTTOMRIGHT",-42,79)
     local content=CreateFrame("Frame",nil,scroll)
     content:SetWidth(692);content:SetHeight(1);scroll:SetScrollChild(content)
     f.content=content;f.rows={};f.scroll=scroll
@@ -157,6 +182,14 @@ function GM:RefreshUI()
     f.rule:SetText(p.leveling and L["Leveling: equipa por ilvl atual; +2 ilvl já troca automaticamente fora de combate."]
         or L["Principal decide primeiro; com o mesmo principal, +5 de ilvl vence. Secundários: ×3, ×2, ×1. PvP compara o ilvl PvP."])
     f.context.label:SetText(L["Perfil: "]..(self.config.context=="auto" and "Auto · " or "")..(self.contextNames[p.context] or p.context).."  ▾")
+    local weaponStyle=self.db.weaponStyle or "auto"
+    local weaponStyleNames={auto=L["Padrão da especialização"], ["2h"]=L["Duas mãos"], ["1h"]=L["Duas armas de uma mão"]}
+    local _,_,dualOnly,dual,shield,only2h,ranged=self:WeaponOptions({})
+    local styleName=weaponStyleNames[weaponStyle] or weaponStyle
+    if weaponStyle=="1h" and not dual or weaponStyle=="2h" and not (only2h or p.spec==72 or not (dualOnly or shield or ranged)) then
+        styleName=styleName.." ("..L["indisponível para esta especialização"]..")"
+    end
+    f.weaponStyle.label:SetText(L["Prioridade de estilo de arma"]..": "..styleName.."  ▾")
     f.automatic:SetChecked(self.config.automatic==true)
     local count=#(self.ready or {})
     local state=self.work and L["Equipando…"] or InCombatLockdown() and L["Em combate; atualização ao sair."] or self.wornIncomplete and not self.config.automatic and L["Aguardando dados dos itens."] or count..L[" melhoria(s) segura(s) nas bolsas."]

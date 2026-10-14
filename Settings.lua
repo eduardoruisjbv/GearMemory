@@ -40,6 +40,22 @@ local function RegisterSettingsCategory()
         return values:GetData()
     end, "Automatic follows the current game context. A manual selection stays active until changed back.")
 
+    local weaponSetting = Settings.RegisterAddOnSetting(
+        category, "GearMemory_weaponStyle", "weaponStyle", GM.db, Settings.VarType.String,
+        L["Prioridade de estilo de arma"], "auto"
+    )
+    weaponSetting:SetValueChangedCallback(function()
+        if not GM.db then return end
+        GM:SetWeaponStyle(GM.db.weaponStyle)
+    end)
+    Settings.CreateDropdown(category, weaponSetting, function()
+        local values = Settings.CreateControlTextContainer()
+        values:Add("auto", L["Padrão da especialização"], L["Usar o estilo recomendado para a especialização atual."])
+        values:Add("2h", L["Duas mãos"], L["Preferir uma arma de duas mãos quando a especialização atual puder usá-la."])
+        values:Add("1h", L["Duas armas de uma mão"], L["Preferir um par de armas de uma mão quando a especialização atual puder usar duas."])
+        return values:GetData()
+    end, L["A preferência é ignorada quando a especialização atual não pode usar esse estilo de arma."])
+
     Settings.RegisterAddOnCategory(category)
     GM.settingsCategory = category
 end

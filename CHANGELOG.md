@@ -1,3 +1,9 @@
+# GearMemory 0.3.9-beta
+
+- Add a weapon style preference: specialization default, two-handed, or two one-handed weapons.
+- Apply the preference only when the current specialization allows that style; existing class and specialization restrictions remain in force.
+- Include a curated estimate of the Venomous Aspirant's Insignia proc in trinket comparisons, scaled to item level and identified as an estimate.
+
 # GearMemory 0.3.1-beta
 
 - Use a circular minimap button with a native WoW sword icon and mask.

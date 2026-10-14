@@ -24,6 +24,13 @@ GM.data = {
             [250259]=2, -- Sapling of the Dawnroot
         }, pvp={}},
     },
+    -- Estimated average primary-stat value for recognized chance-based procs.
+    -- 280097 / 270558: 206-207 primary stat for 20 sec at ilvl 263. We model
+    -- one proc per minute (20/60 uptime); this is an estimate, not a DPS model.
+    trinketProcAverages = {
+        [280097]={primaryAtReference=206, referenceLevel=263, duration=20, interval=60},
+        [270558]={primaryAtReference=207, referenceLevel=263, duration=20, interval=60},
+    },
     -- upgradeCurrency[trackName] = {currency=currencyID, cost=perRank}
     -- Left empty until the season's crest IDs and costs are confirmed in game;
     -- while empty, the upgrade ceiling is never counted.

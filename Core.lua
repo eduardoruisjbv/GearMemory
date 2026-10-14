@@ -1,7 +1,7 @@
 local addon, GM = ...
 local L=GM.L
 _G.GearMemory = GM
-GM.version = "0.3.8-beta"
+GM.version = "0.3.9-beta"
 
 function GM:Call(fn, ...)
     if type(fn)~="function" then return end
@@ -58,6 +58,7 @@ function GM:ReadProfile()
         spec,primary,name=0,primaryByClass[class],L["Leveling"]
     end
     self.db.profiles=self.db.profiles or {}
+    if self.db.weaponStyle~="2h" and self.db.weaponStyle~="1h" then self.db.weaponStyle="auto" end
     local id=spec or 0
     self.db.profiles[id]=self.db.profiles[id] or {first="mastery", second="haste", context="auto", automatic=false}
     if leveling and self.config and self.config.consent==1 then
@@ -89,6 +90,7 @@ function GM:ReadProfile()
     self.lastContext=context
     self.profile={class=class, spec=spec, name=name, role=role, primary=primary,
         level=level, maxLevel=maxLevel, leveling=leveling, context=context, first=first, second=second}
+    self.profile.weaponStyle=self.db.weaponStyle
     if self.SyncInventoryEvents then self:SyncInventoryEvents() end
     return self.profile
 end
@@ -104,6 +106,17 @@ function GM:SetPriority(which, stat)
     self.config.priorities[context]={first=current.first, second=current.second}
     self.blocked={}
     self:ScheduleScan(nil,true)
+end
+
+function GM:SetWeaponStyle(style)
+    if style~="auto" and style~="2h" and style~="1h" then return end
+    if not self.db then return end
+    self.db.weaponStyle=style
+    self:StopEquipment()
+    self.blocked={}
+    self:ReadProfile()
+    self:ScheduleScan(nil,true)
+    if self.RefreshUI then self:RefreshUI() end
 end
 
 function GM:ScheduleScan(event, service)

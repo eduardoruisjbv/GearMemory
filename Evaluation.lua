@@ -127,6 +127,16 @@ function GM:TrinketRating(item, context)
     return group and group[item.id]
 end
 
+function GM:ExpectedTrinketPrimary(item, context)
+    if not item or item.equipLoc~="INVTYPE_TRINKET" then return 0 end
+    local model=self.data and self.data.trinketProcAverages and self.data.trinketProcAverages[item.id]
+    if not model or not model.primaryAtReference or not model.referenceLevel
+        or not model.duration or not model.interval or model.interval<=0 then return 0 end
+    local level=context=="pvp" and (item.pvpLevel or item.level) or item.level
+    if type(level)~="number" then return 0 end
+    return model.primaryAtReference*(level/model.referenceLevel)*(model.duration/model.interval)
+end
+
 function GM:CurrencyQuantity(id)
     local info=self:Call(C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo,id)
     return type(info)=="table" and number(info.quantity) or 0
@@ -177,7 +187,8 @@ function GM:Score(item, context)
         table.sort(self.tertiaryOrder)
     end
     for _,key in ipairs(self.tertiaryOrder) do secondary=secondary+statOf(item,key)*self.rules.tertiaryWeights[key] end
-    local score={self:Primary(item),secondary,self:EffectiveLevel(item,context)}
+    local primary=self:Primary(item)+self:ExpectedTrinketPrimary(item,context)
+    local score={primary,secondary,self:EffectiveLevel(item,context)}
     if cache then cache[item]=score end
     return score
 end
@@ -255,6 +266,16 @@ function GM:Explain(item, old, slot)
     end
     local rating=self:TrinketRating(item,context)
     if rating then parts[#parts+1]=L["berloque curado nota "]..rating end
+    local proc=self:ExpectedTrinketPrimary(item,context)
+    local procModel=self.data and self.data.trinketProcAverages and self.data.trinketProcAverages[item.id]
+    if proc>0 and procModel then
+        parts[#parts+1]=string.format(L["proc principal médio estimado: +%g (%g s/%g s)"],proc,procModel.duration,procModel.interval)
+    end
+    local oldProc=self:ExpectedTrinketPrimary(old,context)
+    local oldModel=old and self.data and self.data.trinketProcAverages and self.data.trinketProcAverages[old.id]
+    if oldProc>0 and oldModel then
+        parts[#parts+1]=string.format(L["proc equipado médio estimado: +%g (%g s/%g s)"],oldProc,oldModel.duration,oldModel.interval)
+    end
     local potential=item.upgradeTrack and context~="pvp" and self:UpgradePotential(item)
     if potential then parts[#parts+1]=L["conta o teto de upgrade ("]..potential..")" end
     if item.emptySockets and item.emptySockets>0 then parts[#parts+1]=item.emptySockets..L[" engaste(s) vazio(s)"] end
@@ -396,7 +417,7 @@ function GM:WeaponOptions(candidates)
         if spec==259 and item.subclass~=15 then offOK=false end
         if offOK and (item.storage~="equipped" or item.inventorySlot==17) then offs[#offs+1]=item end
     end
-    return mains,offs,dualOnly,dual,shield
+    return mains,offs,dualOnly,dual,shield,only2h,ranged
 end
 function GM:WeaponTotal(main,off,context,total)
     local a,b=self:Score(main,context),self:Score(off,context)
@@ -493,7 +514,9 @@ function GM:BuildPlan(candidates, context)
     local currentMain,currentOff=plan[16],plan[17]
     local currentStyle=self:Style(currentMain)
     local currentScore=currentMain and self:WeaponTotal(currentMain,currentOff,context)
-    local preferred=self.rules.preferredStyle[self.profile.spec]
+    local preferred=self.profile.weaponStyle~="auto" and self.profile.weaponStyle
+        or self.rules.preferredStyle[self.profile.spec]
+    if preferred=="1h" and not dual then preferred=self.rules.preferredStyle[self.profile.spec] end
     local bestByStyle={}
     if currentMain then bestByStyle[currentStyle]={main=currentMain,off=currentOff,score=currentScore} end
     local proposed={}
