@@ -52,13 +52,11 @@ function GM:PriorityMenu(owner,which)
 end
 
 function GM:WeaponStyleMenu(owner)
-    local _,_,dualOnly,dual,shield,only2h,ranged=self:WeaponOptions({})
     local options={{"auto",L["Padrão da especialização"]}}
-    local can2h=only2h or self.profile.spec==72 or not (dualOnly or shield or ranged)
-    if can2h then options[#options+1]={"2h",L["Duas mãos"]} end
-    if dual then options[#options+1]={"1h",L["Duas armas de uma mão"]} end
+    if self:WeaponStyleAvailable("2h") then options[#options+1]={"2h",L["Duas mãos"]} end
+    if self:WeaponStyleAvailable("1h") then options[#options+1]={"1h",L["Duas armas de uma mão"]} end
     if not (MenuUtil and MenuUtil.CreateContextMenu) then
-        local current=self.db.weaponStyle or "auto"
+        local current=self.config.weaponStyle or "auto"
         for index,option in ipairs(options) do
             if option[1]==current then self:SetWeaponStyle(options[index%#options+1][1]);return end
         end
@@ -69,7 +67,7 @@ function GM:WeaponStyleMenu(owner)
         root:CreateTitle(L["Prioridade de estilo de arma"])
         for _,option in ipairs(options) do
             local value,label=option[1],option[2]
-            root:CreateRadio(label,function() return self.db.weaponStyle==value end,
+            root:CreateRadio(label,function() return self.config.weaponStyle==value end,
                 function() self:SetWeaponStyle(value) end)
         end
     end)
@@ -123,7 +121,7 @@ function GM:CreateUI()
             StaticPopup_Show("GEARMEMORY_AUTOMATIC",nil,nil,{config=self.config,spec=self.profile.spec})
         end
     end)
-    f.weaponStyle=button(f,"",20,-220,300,function(b) self:WeaponStyleMenu(b) end)
+    f.weaponStyle=button(f,"",20,-220,615,function(b) self:WeaponStyleMenu(b) end)
     f.suggestions=button(f,L["Melhorias"],20,-260,140,function() self.view="suggestions";self:RefreshUI() end)
     f.explainButton=button(f,L["Explicar"],410,-260,110,function() self:PrintExplain() end)
     f.categories=button(f,L["Melhores por categoria"],175,-260,220,function() self.view="categories";self:RefreshUI() end)
@@ -182,11 +180,10 @@ function GM:RefreshUI()
     f.rule:SetText(p.leveling and L["Leveling: equipa por ilvl atual; +2 ilvl já troca automaticamente fora de combate."]
         or L["Principal decide primeiro; com o mesmo principal, +5 de ilvl vence. Secundários: ×3, ×2, ×1. PvP compara o ilvl PvP."])
     f.context.label:SetText(L["Perfil: "]..(self.config.context=="auto" and "Auto · " or "")..(self.contextNames[p.context] or p.context).."  ▾")
-    local weaponStyle=self.db.weaponStyle or "auto"
+    local weaponStyle=self.config.weaponStyle or "auto"
     local weaponStyleNames={auto=L["Padrão da especialização"], ["2h"]=L["Duas mãos"], ["1h"]=L["Duas armas de uma mão"]}
-    local _,_,dualOnly,dual,shield,only2h,ranged=self:WeaponOptions({})
     local styleName=weaponStyleNames[weaponStyle] or weaponStyle
-    if weaponStyle=="1h" and not dual or weaponStyle=="2h" and not (only2h or p.spec==72 or not (dualOnly or shield or ranged)) then
+    if not self:WeaponStyleAvailable(weaponStyle) then
         styleName=styleName.." ("..L["indisponível para esta especialização"]..")"
     end
     f.weaponStyle.label:SetText(L["Prioridade de estilo de arma"]..": "..styleName.."  ▾")

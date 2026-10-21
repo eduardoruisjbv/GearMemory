@@ -1,3 +1,11 @@
+# GearMemory 0.3.10-beta
+
+- The estimated trinket proc value no longer outranks the passive primary stat or a clear item level lead; it now breaks ties before secondary stats, and scales from the same item level used for comparison.
+- Weapon style preference is saved per specialization. An existing choice moves to the first specialization loaded after updating.
+- The Settings panel now always edits the current specialization's content profile.
+- Re-selecting the active weapon style no longer interrupts equipping or clears blocked items; the weapon style button is wide enough for its label.
+- Shared item cache v2: correct entry count, per-item invalidation without scanning the whole cache, and a newer version loaded by another addon is never replaced.
+
 # GearMemory 0.3.9-beta
 
 - Add a weapon style preference: specialization default, two-handed, or two one-handed weapons.

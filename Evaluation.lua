@@ -23,7 +23,7 @@ local function number(value) return type(value)=="number" and value or 0 end
 local function statOf(item,key)
     return number(item.stats and item.stats[key])+number(item.bonusStats and item.bonusStats[key])
 end
-local zeroScore={0,0,0}
+local zeroScore={0,0,0,0}
 GM.bindReason=L["Vínculo/possível transferência: equipe manualmente"]
 GM.statOf=statOf
 
@@ -132,9 +132,14 @@ function GM:ExpectedTrinketPrimary(item, context)
     local model=self.data and self.data.trinketProcAverages and self.data.trinketProcAverages[item.id]
     if not model or not model.primaryAtReference or not model.referenceLevel
         or not model.duration or not model.interval or model.interval<=0 then return 0 end
-    local level=context=="pvp" and (item.pvpLevel or item.level) or item.level
+    -- A proc only counts when it grants this spec's primary stat (when known).
+    if model.primary and self.profile and model.primary~=self.profile.primary then return 0 end
+    -- Scale from the same item level EffectiveLevel uses, before curated bonuses.
+    local level=item.level
+    if context=="pvp" then level=item.pvpLevel or level
+    elseif not (self.profile and self.profile.leveling) then level=self:UpgradePotential(item) or level end
     if type(level)~="number" then return 0 end
-    return model.primaryAtReference*(level/model.referenceLevel)*(model.duration/model.interval)
+    return model.primaryAtReference*(level/model.referenceLevel)*(model.duration/model.interval),model
 end
 
 function GM:CurrencyQuantity(id)
@@ -187,8 +192,9 @@ function GM:Score(item, context)
         table.sort(self.tertiaryOrder)
     end
     for _,key in ipairs(self.tertiaryOrder) do secondary=secondary+statOf(item,key)*self.rules.tertiaryWeights[key] end
-    local primary=self:Primary(item)+self:ExpectedTrinketPrimary(item,context)
-    local score={primary,secondary,self:EffectiveLevel(item,context)}
+    -- [4] is the estimated proc value: an estimate only breaks ties after the
+    -- passive primary stat and a clear item level lead (see Compare).
+    local score={self:Primary(item),secondary,self:EffectiveLevel(item,context),self:ExpectedTrinketPrimary(item,context)}
     if cache then cache[item]=score end
     return score
 end
@@ -197,24 +203,29 @@ end
 -- PvE: main attribute first; with the same main attribute an item level lead
 -- of at least the threshold wins, otherwise weighted secondaries, then ilvl.
 -- PvP: the (buffed) item level decides first, as the player must be ready.
+-- The estimated trinket proc value ([4]) follows the passive primary stat in
+-- leveling/PvP and the item level threshold in PvE.
 -- `count` scales the threshold for sums over several slots.
 function GM:Compare(a,b,context,count)
     count=count or 1
     if self.profile and self.profile.leveling then
         if a[3]~=b[3] then return a[3]>b[3] and 1 or -1,"ilvl" end
         if a[1]~=b[1] then return a[1]>b[1] and 1 or -1,"principal" end
+        if (a[4] or 0)~=(b[4] or 0) then return (a[4] or 0)>(b[4] or 0) and 1 or -1,"principal" end
         if a[2]~=b[2] then return a[2]>b[2] and 1 or -1,"secundarios" end
         return 0
     end
     if context=="pvp" then
         if a[3]~=b[3] then return a[3]>b[3] and 1 or -1,"ilvl" end
         if a[1]~=b[1] then return a[1]>b[1] and 1 or -1,"principal" end
+        if (a[4] or 0)~=(b[4] or 0) then return (a[4] or 0)>(b[4] or 0) and 1 or -1,"principal" end
         if a[2]~=b[2] then return a[2]>b[2] and 1 or -1,"secundarios" end
         return 0
     end
     if a[1]~=b[1] then return a[1]>b[1] and 1 or -1,"principal" end
     local diff=a[3]-b[3]
     if math.abs(diff)>=self.rules.ilvlThreshold*count then return diff>0 and 1 or -1,"ilvl" end
+    if (a[4] or 0)~=(b[4] or 0) then return (a[4] or 0)>(b[4] or 0) and 1 or -1,"principal" end
     if a[2]~=b[2] then return a[2]>b[2] and 1 or -1,"secundarios" end
     if diff~=0 then return diff>0 and 1 or -1,"ilvl" end
     return 0
@@ -253,7 +264,7 @@ function GM:Explain(item, old, slot)
     else
         local _,why=self:Compare(a,b,context,1)
         if why=="principal" then
-            parts[1]=string.format(L["principal %g contra %g (%+g) · %s %+g"],a[1],b[1],a[1]-b[1],level,a[3]-b[3])
+            parts[1]=string.format(L["principal %g contra %g (%+g) · %s %+g"],a[1]+(a[4] or 0),b[1]+(b[4] or 0),a[1]+(a[4] or 0)-b[1]-(b[4] or 0),level,a[3]-b[3])
         elseif why=="ilvl" then
             parts[1]=string.format(L["%s %g contra %g (%+g)"],level,a[3],b[3],a[3]-b[3])
         elseif why=="secundarios" then
@@ -266,14 +277,12 @@ function GM:Explain(item, old, slot)
     end
     local rating=self:TrinketRating(item,context)
     if rating then parts[#parts+1]=L["berloque curado nota "]..rating end
-    local proc=self:ExpectedTrinketPrimary(item,context)
-    local procModel=self.data and self.data.trinketProcAverages and self.data.trinketProcAverages[item.id]
-    if proc>0 and procModel then
+    local proc,procModel=self:ExpectedTrinketPrimary(item,context)
+    if proc>0 then
         parts[#parts+1]=string.format(L["proc principal médio estimado: +%g (%g s/%g s)"],proc,procModel.duration,procModel.interval)
     end
-    local oldProc=self:ExpectedTrinketPrimary(old,context)
-    local oldModel=old and self.data and self.data.trinketProcAverages and self.data.trinketProcAverages[old.id]
-    if oldProc>0 and oldModel then
+    local oldProc,oldModel=self:ExpectedTrinketPrimary(old,context)
+    if oldProc>0 then
         parts[#parts+1]=string.format(L["proc equipado médio estimado: +%g (%g s/%g s)"],oldProc,oldModel.duration,oldModel.interval)
     end
     local potential=item.upgradeTrack and context~="pvp" and self:UpgradePotential(item)
@@ -419,12 +428,22 @@ function GM:WeaponOptions(candidates)
     end
     return mains,offs,dualOnly,dual,shield,only2h,ranged
 end
+-- Whether the current specialization can use a weapon style preference.
+-- "auto" is always available; the evaluator, menu and label share this rule.
+function GM:WeaponStyleAvailable(style)
+    if style=="auto" then return true end
+    local _,_,dualOnly,dual,shield,only2h,ranged=self:WeaponOptions({})
+    if style=="1h" then return dual and true or false end
+    if style=="2h" then return only2h or self.profile.spec==72 or not (dualOnly or shield or ranged) end
+    return false
+end
 function GM:WeaponTotal(main,off,context,total)
     local a,b=self:Score(main,context),self:Score(off,context)
     -- Two handed weapons already carry a two-slot stat budget. Only item level
     -- is doubled so it can break a tie against a complete one handed pair.
     total=total or {}
     total[1],total[2],total[3]=a[1]+b[1],a[2]+b[2],main and self:TwoHanded(main) and not off and a[3]*2 or a[3]+b[3]
+    total[4]=(a[4] or 0)+(b[4] or 0)
     return total
 end
 
@@ -479,7 +498,7 @@ function GM:BuildPlan(candidates, context)
         local function total(a,b,result)
             local sa,sb=self:Score(a,context),self:Score(b,context)
             result=result or {}
-            result[1],result[2],result[3]=sa[1]+sb[1],sa[2]+sb[2],sa[3]+sb[3]
+            result[1],result[2],result[3],result[4]=sa[1]+sb[1],sa[2]+sb[2],sa[3]+sb[3],(sa[4] or 0)+(sb[4] or 0)
             return result
         end
         local first,second=plan[pair[1]],plan[pair[2]]
@@ -501,7 +520,7 @@ function GM:BuildPlan(candidates, context)
                     local allowed=(not a or self:UniqueAllowed(a,proposed,pair[1])) and (not b or self:UniqueAllowed(b,proposed,pair[2]))
                     if allowed then
                         first,second=a,b
-                        best[1],best[2],best[3]=score[1],score[2],score[3]
+                        best[1],best[2],best[3],best[4]=score[1],score[2],score[3],score[4]
                     end
                 end
             end
@@ -514,9 +533,10 @@ function GM:BuildPlan(candidates, context)
     local currentMain,currentOff=plan[16],plan[17]
     local currentStyle=self:Style(currentMain)
     local currentScore=currentMain and self:WeaponTotal(currentMain,currentOff,context)
-    local preferred=self.profile.weaponStyle~="auto" and self.profile.weaponStyle
-        or self.rules.preferredStyle[self.profile.spec]
-    if preferred=="1h" and not dual then preferred=self.rules.preferredStyle[self.profile.spec] end
+    local preferred=self.profile.weaponStyle
+    if not preferred or preferred=="auto" or not self:WeaponStyleAvailable(preferred) then
+        preferred=self.rules.preferredStyle[self.profile.spec]
+    end
     local bestByStyle={}
     if currentMain then bestByStyle[currentStyle]={main=currentMain,off=currentOff,score=currentScore} end
     local proposed={}

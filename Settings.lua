@@ -1,6 +1,17 @@
 local _, GM = ...
 local L = GM.L
 
+local function Register(category, variable, key, name, default, get, set)
+    if Settings.RegisterProxySetting then
+        return Settings.RegisterProxySetting(category, variable, Settings.VarType.String, name, default, get, set)
+    end
+    -- Older clients: back the setting with a plain table and forward changes.
+    local store = {[key] = get()}
+    local setting = Settings.RegisterAddOnSetting(category, variable, key, store, Settings.VarType.String, name, default)
+    setting:SetValueChangedCallback(function() set(store[key]) end)
+    return setting
+end
+
 local function RegisterSettingsCategory()
     if GM.settingsCategory then return end
     if not (Settings and Settings.RegisterVerticalLayoutCategory
@@ -18,18 +29,19 @@ local function RegisterSettingsCategory()
         ))
     end
 
-    local variable = "GearMemory_context"
-    local setting = Settings.RegisterAddOnSetting(
-        category, variable, "context", GM.config, Settings.VarType.String, "Content profile", "auto"
-    )
-    setting:SetValueChangedCallback(function()
-        if not GM.config then return end
-        GM:StopEquipment()
-        GM.blocked = {}
-        GM:ReadProfile()
-        GM:ScheduleScan(nil, true)
-        if GM.RefreshUI then GM:RefreshUI() end
-    end)
+    -- GM.config is swapped on every specialization change, so bind through
+    -- getters/setters instead of capturing one profile table at registration.
+    local setting = Register(category, "GearMemory_context", "context", "Content profile", "auto",
+        function() return GM.config and GM.config.context or "auto" end,
+        function(value)
+            if not GM.config or GM.config.context == value then return end
+            GM.config.context = value
+            GM:StopEquipment()
+            GM.blocked = {}
+            GM:ReadProfile()
+            GM:ScheduleScan(nil, true)
+            if GM.RefreshUI then GM:RefreshUI() end
+        end)
     Settings.CreateDropdown(category, setting, function()
         local values = Settings.CreateControlTextContainer()
         values:Add("auto", "Automatic", "Choose the profile from the current game content.")
@@ -40,14 +52,10 @@ local function RegisterSettingsCategory()
         return values:GetData()
     end, "Automatic follows the current game context. A manual selection stays active until changed back.")
 
-    local weaponSetting = Settings.RegisterAddOnSetting(
-        category, "GearMemory_weaponStyle", "weaponStyle", GM.db, Settings.VarType.String,
-        L["Prioridade de estilo de arma"], "auto"
-    )
-    weaponSetting:SetValueChangedCallback(function()
-        if not GM.db then return end
-        GM:SetWeaponStyle(GM.db.weaponStyle)
-    end)
+    local weaponSetting = Register(category, "GearMemory_weaponStyle", "weaponStyle",
+        L["Prioridade de estilo de arma"], "auto",
+        function() return GM.config and GM.config.weaponStyle or "auto" end,
+        function(value) GM:SetWeaponStyle(value) end)
     Settings.CreateDropdown(category, weaponSetting, function()
         local values = Settings.CreateControlTextContainer()
         values:Add("auto", L["Padrão da especialização"], L["Usar o estilo recomendado para a especialização atual."])

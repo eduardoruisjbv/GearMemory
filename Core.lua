@@ -1,7 +1,7 @@
 local addon, GM = ...
 local L=GM.L
 _G.GearMemory = GM
-GM.version = "0.3.9-beta"
+GM.version = "0.3.10-beta"
 
 function GM:Call(fn, ...)
     if type(fn)~="function" then return end
@@ -58,7 +58,6 @@ function GM:ReadProfile()
         spec,primary,name=0,primaryByClass[class],L["Leveling"]
     end
     self.db.profiles=self.db.profiles or {}
-    if self.db.weaponStyle~="2h" and self.db.weaponStyle~="1h" then self.db.weaponStyle="auto" end
     local id=spec or 0
     self.db.profiles[id]=self.db.profiles[id] or {first="mastery", second="haste", context="auto", automatic=false}
     if leveling and self.config and self.config.consent==1 then
@@ -70,6 +69,13 @@ function GM:ReadProfile()
         if self.config.automatic then self.config.consent=1 end
     end
     self.config.automatic=self.config.automatic==true and self.config.consent==1
+    -- Weapon style is per specialization; 0.3.9 kept one value per character,
+    -- which moves to the first specialization read after updating.
+    if self.config.weaponStyle==nil and (self.db.weaponStyle=="2h" or self.db.weaponStyle=="1h") then
+        self.config.weaponStyle=self.db.weaponStyle
+    end
+    self.db.weaponStyle=nil
+    if self.config.weaponStyle~="2h" and self.config.weaponStyle~="1h" then self.config.weaponStyle="auto" end
     if not self.statNames[self.config.first] then self.config.first="mastery" end
     if not self.statNames[self.config.second] or self.config.second==self.config.first then
         for _,stat in ipairs(self.stats) do if stat~=self.config.first then self.config.second=stat;break end end
@@ -90,7 +96,7 @@ function GM:ReadProfile()
     self.lastContext=context
     self.profile={class=class, spec=spec, name=name, role=role, primary=primary,
         level=level, maxLevel=maxLevel, leveling=leveling, context=context, first=first, second=second}
-    self.profile.weaponStyle=self.db.weaponStyle
+    self.profile.weaponStyle=self.config.weaponStyle
     if self.SyncInventoryEvents then self:SyncInventoryEvents() end
     return self.profile
 end
@@ -110,8 +116,10 @@ end
 
 function GM:SetWeaponStyle(style)
     if style~="auto" and style~="2h" and style~="1h" then return end
-    if not self.db then return end
-    self.db.weaponStyle=style
+    if not self.config then return end
+    -- Reselecting the active choice must not abort equipping or clear blocks.
+    if self.config.weaponStyle==style and self.profile and self.profile.weaponStyle==style then return end
+    self.config.weaponStyle=style
     self:StopEquipment()
     self.blocked={}
     self:ReadProfile()
