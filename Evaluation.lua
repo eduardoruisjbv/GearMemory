@@ -136,8 +136,10 @@ function GM:ExpectedTrinketPrimary(item, context)
     if model.primary and self.profile and model.primary~=self.profile.primary then return 0 end
     -- Scale from the same item level EffectiveLevel uses, before curated bonuses.
     local level=item.level
-    if context=="pvp" then level=item.pvpLevel or level
-    elseif not (self.profile and self.profile.leveling) then level=self:UpgradePotential(item) or level end
+    if not (self.profile and self.profile.leveling) then
+        if context=="pvp" then level=item.pvpLevel or level
+        else level=self:UpgradePotential(item) or level end
+    end
     if type(level)~="number" then return 0 end
     return model.primaryAtReference*(level/model.referenceLevel)*(model.duration/model.interval),model
 end
