@@ -3,6 +3,12 @@ name: CurseForge upload
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to upload
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -14,10 +20,12 @@ jobs:
       - name: Check out release source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
           fetch-depth: 0
 
       - name: Package and upload to CurseForge
         uses: BigWigsMods/packager@v2
+        with:
+          args: -p 1727411
         env:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
